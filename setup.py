@@ -4,7 +4,7 @@ __version__ = "1.1.2"
 __author__ = "misken"  
 
 from os import path
-from setuptools import setup, find_packages, find_namespace_packages
+from setuptools import setup
 
 
 setup(
@@ -13,12 +13,11 @@ setup(
     author=__author__,
     author_email="",
     description="Wrapper for penn_chime to facilitate scenario running/management",
-    url="https://github.com/misken/c19",
+    url="https://github.com/misken/sim_chime_scenario_runner",
     packages=['sim_chime_scenario_runner'],
     install_requires=[
         "numpy",
         "pandas",
-        "penn-chime",
     ],
     classifiers=[
         "Programming Language :: Python :: 3",
