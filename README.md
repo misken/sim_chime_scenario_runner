@@ -2,9 +2,9 @@
 
 A simple Python module for working with the penn_chime model from the command line or as importable functions. 
 
-* A Jupyter notebook demo showing its use: [using_sim_chime_scenario_runner.ipynb](https://github.com/misken/c19/blob/master/mychime/sim_chime_scenario_runner/demos/using_sim_chime_scenario_runner.ipynb)
+Has it's own repo now: https://github.com/misken/sim_chime_scenario_runner
 
-**Note**: Assumes that you've pip installed `penn_chime` per https://github.com/CodeForPhilly/chime/pull/249 from a local clone of the chime repo.
+* A Jupyter notebook demo showing its use: [using_sim_chime_scenario_runner.ipynb](https://github.com/misken/sim_chime_scenario_runner/blob/master/demos/using_sim_chime_scenario_runner.ipynb)
 
 * assumes that you've pip installed `penn_chime` either per https://github.com/CodeForPhilly/chime/pull/249 from a local clone of the chime repo or from pypi if it's eventually put up there
 * [OPTIONAL] You can do a `pip install .` from the directory containing setup.py if you want to install into a virtual environment
