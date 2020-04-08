@@ -14,6 +14,7 @@ containing parameter and variable values.
 """
 
 import os
+from collections import OrderedDict
 from argparse import (
     Action,
     ArgumentParser,
@@ -143,7 +144,7 @@ def write_results(results, scenario, path):
         json.dump(results['intermediate_variables_dict'], f)
 
 
-def write_scenarios_results(admits_df, census_df, params_vars_df, scenarios, path):
+def write_scenarios_results(cons_dfs, param_dict_list, scenarios, path):
     """
 
     :param admits_df:
@@ -155,12 +156,13 @@ def write_scenarios_results(admits_df, census_df, params_vars_df, scenarios, pat
     """
 
     # Results dataframes
-    for df, name in (
-        (params_vars_df, "params_vars"),
-        (admits_df, "admits"),
-        (census_df, "census"),
-    ):
-        df.to_csv(path + scenarios + '_' + name + ".csv", index=True)
+    for df_name, df in cons_dfs.items():
+        df.to_csv(path + scenarios + '_' + df_name + ".csv", index=True)
+
+    # Input dictionaries
+    # Variable dictionaries
+    with open(path + scenarios + "_inputs.json", "w") as f:
+        json.dump(param_dict_list, f, default=str)
 
 
 def gather_sim_results(m, scenario, input_params_dict):
@@ -182,14 +184,14 @@ def gather_sim_results(m, scenario, input_params_dict):
     r_naught = m.r_naught
     doubling_time_t = m.doubling_time_t
 
-    intermediate_variables = {
+    intermediate_variables = OrderedDict({
         "intrinsic_growth_rate": intrinsic_growth_rate,
         "gamma": gamma,
         "beta": beta,
         "r_naught": r_naught,
         "r_t": r_t,
         "doubling_time_t": doubling_time_t,
-    }
+    })
 
     results = {
         'scenario': scenario,
@@ -256,7 +258,7 @@ def sim_chimes(scenarios: str, p: Parameters):
         else:
             p.date_first_hospitalized = None
 
-        input_params_dict = vars(p)
+        input_params_dict = OrderedDict(vars(p))
 
         # Run the model
         m = Model(p)
@@ -270,11 +272,15 @@ def sim_chimes(scenarios: str, p: Parameters):
 
     return results_list
 
+
 def consolidate_scenarios_results(results_list):
 
     admits_df_list = []
     census_df_list = []
-    params_vars = []
+    dispositions_df_list = []
+    sim_sir_w_date_df_list = []
+    vars_df_list = []
+    params_dict_list = []
 
     for results in results_list:
         scenario = results['scenario']
@@ -284,24 +290,35 @@ def consolidate_scenarios_results(results_list):
 
         admits_df = results['admits_df']
         census_df = results['census_df']
+        dispositions_df = results['dispositions_df']
+        sim_sir_w_date_df = results['sim_sir_w_date_df']
 
-        admits_df['scenario'] = scenario
-        admits_df['mit_date'] = mit_date
-        admits_df['sd_pct'] = sd_pct
+        for df, df_list in (
+                (sim_sir_w_date_df, sim_sir_w_date_df_list),
+                (dispositions_df, dispositions_df_list),
+                (admits_df, admits_df_list),
+                (census_df, census_df_list),
+        ):
+            df['scenario'] = scenario
+            df['mit_date'] = mit_date
+            df['sd_pct'] = sd_pct
+            df_list.append(df.copy())
 
-        census_df['scenario'] = scenario
-        census_df['mit_date'] = mit_date
-        census_df['sd_pct'] = sd_pct
+        params_dict_list.append(results['input_params_dict'].copy())
+        vars_df = pd.DataFrame(results['intermediate_variables_dict'], index=[0])
+        vars_df_list.append(vars_df.copy())
 
-        params_vars = {**results['input_params_dict'], **results['intermediate_variables_dict']}
-        params_vars_df = pd.DataFrame(params_vars)
+        cons_dfs = {}
+        for df_name, df_list in (
+                ("sim_sir_w_date_df", sim_sir_w_date_df_list),
+                ("dispositions_df", dispositions_df_list),
+                ("admits_df", admits_df_list),
+                ("census_df", census_df_list),
+                ("vars_df", vars_df_list),
+        ):
+            cons_dfs[df_name] = pd.concat(df_list)
 
-        admits_df_list.append(admits_df.copy())
-        census_df_list.append(census_df.copy())
-        params_vars_df.append(params_vars_df.copy())
-
-    return admits_df_list, census_df_list, params_vars_df
-
+    return cons_dfs, params_dict_list
 
 
 def main():
@@ -355,10 +372,15 @@ def main():
         write_results(results, scenario, output_path)
     else:
         # Running a bunch of scenarios using sim_chimes()
-        results_list = sim_chimes(my_args.scenarios, p)
+        scenarios_name = my_args.scenarios
+        # Run the scenarios (kludged into sim_chimes for now)
+        results_list = sim_chimes(scenarios_name, p)
 
-        admits_df, census_df, params_vars_df = consolidate_scenarios_results(results_list)
+        # Consolidate results over scenarios
+        cons_dfs, params_dict_list = consolidate_scenarios_results(results_list)
 
+        # Write out consolidated csv files
+        write_scenarios_results(cons_dfs, params_dict_list, scenarios_name, output_path)
 
 
 if __name__ == "__main__":
