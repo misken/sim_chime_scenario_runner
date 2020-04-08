@@ -13,6 +13,7 @@ containing parameter and variable values.
 
 """
 
+import os
 from argparse import (
     Action,
     ArgumentParser,
@@ -62,32 +63,33 @@ def create_params_from_file(file):
     :return:
     """
     # Update sys.arg so we can call cli.parse_args()
-    sys.argv = [sys.argv[0], '--file', file]
+    sys.argv = [sys.argv[0], '--parameters', file]
+    p = Parameters.create(os.environ, sys.argv[1:])
 
-    a = cli.parse_args()
-
-    p = Parameters(
-        current_hospitalized=a.current_hospitalized,
-        mitigation_date=a.mitigation_date,
-        current_date=a.current_date,
-        infectious_days=a.infectious_days,
-        market_share=a.market_share,
-        n_days=a.n_days,
-        relative_contact_rate=a.relative_contact_rate,
-        population=a.population,
-
-        hospitalized=Disposition(a.hospitalized_rate, a.hospitalized_days),
-        icu=Disposition(a.icu_rate, a.icu_days),
-        ventilated=Disposition(a.ventilated_rate, a.ventilated_days),
-    )
-
-    if a.date_first_hospitalized is None:
-        p.doubling_time = a.doubling_time
-    else:
-        p.date_first_hospitalized = a.date_first_hospitalized
-
-
-    return p
+    # a = cli.parse_args()
+    #
+    # p = Parameters(
+    #     current_hospitalized=a.current_hospitalized,
+    #     mitigation_date=a.mitigation_date,
+    #     current_date=a.current_date,
+    #     infectious_days=a.infectious_days,
+    #     market_share=a.market_share,
+    #     n_days=a.n_days,
+    #     relative_contact_rate=a.relative_contact_rate,
+    #     population=a.population,
+    #
+    #     hospitalized=Disposition(a.hospitalized_rate, a.hospitalized_days),
+    #     icu=Disposition(a.icu_rate, a.icu_days),
+    #     ventilated=Disposition(a.ventilated_rate, a.ventilated_days),
+    # )
+    #
+    # if a.date_first_hospitalized is None:
+    #     p.doubling_time = a.doubling_time
+    # else:
+    #     p.date_first_hospitalized = a.date_first_hospitalized
+    #
+    #
+    # return p
 
 
 
@@ -130,10 +132,10 @@ def write_results(results, scenario, path):
 
     # Variable dictionaries
     with open(path + scenario + "_inputs.json", "w") as f:
-        # Convert date to string to make json happy
-        # “%Y-%m-%d”
-        results['input_params_dict']['date_first_hospitalized'] = results['input_params_dict'][
-            'date_first_hospitalized'].strftime("%Y-%m-%d")
+        # # Convert date to string to make json happy
+        # # “%Y-%m-%d”
+        # results['input_params_dict']['date_first_hospitalized'] = results['input_params_dict'][
+        #     'date_first_hospitalized'].strftime("%Y-%m-%d")
 
         json.dump(results['input_params_dict'], f, default=str)
 
@@ -195,12 +197,23 @@ def sim_chimes(scenarios: str, p: Parameters):
 
     base_input_params_dict = vars(p)
 
+    which_param_set = ''
+    # Check which of date_first_hospitalized and doubling_time is set
+    which_param_set = ''
+    if p.date_first_hospitalized is not None and p.doubling_time is None:
+        which_param_set = 'date_first_hospitalized'
+    elif p.date_first_hospitalized is None and p.doubling_time is not None:
+        which_param_set = 'doubling_time'
+    else:
+        print("Gonna be trouble. Either date_first_hospitalized or doubling_time should be set.")
+
     # Create a range of social distances
 
     soc_dists = np.arange(0.05, 0.80, 0.05)
 
     # Create range of mitigation dates
-    mit_dates = pd.date_range('2020-03-21', '2020-03-25').values
+    dates = pd.date_range('2020-03-21', '2020-03-25').to_pydatetime()
+    mit_dates =[d.date() for d in dates]
 
     num_scenarios = len(soc_dists)
 
@@ -212,15 +225,21 @@ def sim_chimes(scenarios: str, p: Parameters):
     scenarios_list = [(md, sd) for md in mit_dates for sd in soc_dists]
 
     for (mit_date, sd_pct) in scenarios_list:
+
         sim_scenario = '{}_{:%Y%m%d}_{:.0f}'.format(scenarios, mit_date, 100 * sd_pct)
 
         # Update the parameters for this scenario
         p.mitigation_date = mit_date
         p.relative_contact_rate = sd_pct
+        if which_param_set == 'date_first_hospitalized':
+            p.doubling_time = None
+        else:
+            p.date_first_hospitalized = None
+
         input_params_dict = vars(p)
 
         # Run the model
-        m = Model.SimSirModel(p)
+        m = Model(p)
 
         # Gather results
         results = gather_sim_results(m, sim_scenario, input_params_dict)
@@ -237,30 +256,32 @@ def main():
     my_args_dict = vars(my_args)
 
     # Update sys.arg so we can call cli.parse_args()
-    sys.argv = [sys.argv[0], '--file', my_args_dict['file']]
+    sys.argv = [sys.argv[0], '--parameters', my_args_dict['file']]
 
     scenario = my_args.scenario
     output_path = my_args.output_path
 
     # Read chime params from configuration file
-    a = cli.parse_args()
+    # a = cli.parse_args()
 
-    p = Parameters(
-        current_hospitalized=a.current_hospitalized,
-        mitigation_date=a.mitigation_date,
-        current_date=a.current_date,
-        date_first_hospitalized=a.date_first_hospitalized,
-        doubling_time=a.doubling_time,
-        infectious_days=a.infectious_days,
-        market_share=a.market_share,
-        n_days=a.n_days,
-        relative_contact_rate=a.relative_contact_rate,
-        population=a.population,
+    p = Parameters.create(os.environ, sys.argv[1:])
 
-        hospitalized=Disposition(a.hospitalized_rate, a.hospitalized_days),
-        icu=Disposition(a.icu_rate, a.icu_days),
-        ventilated=Disposition(a.ventilated_rate, a.ventilated_days),
-    )
+    # p = Parameters(
+    #     current_hospitalized=a.current_hospitalized,
+    #     mitigation_date=a.mitigation_date,
+    #     current_date=a.current_date,
+    #     date_first_hospitalized=a.date_first_hospitalized,
+    #     doubling_time=a.doubling_time,
+    #     infectious_days=a.infectious_days,
+    #     market_share=a.market_share,
+    #     n_days=a.n_days,
+    #     relative_contact_rate=a.relative_contact_rate,
+    #     population=a.population,
+    #
+    #     hospitalized=Disposition(a.hospitalized_rate, a.hospitalized_days),
+    #     icu=Disposition(a.icu_rate, a.icu_days),
+    #     ventilated=Disposition(a.ventilated_rate, a.ventilated_days),
+    # )
     input_check = vars(p)
 
     if my_args.scenarios is None:
@@ -284,9 +305,9 @@ def main():
         results_list = sim_chimes(my_args.scenarios, p)
 
         for results in results_list:
-            sim_scenario = results['scenario_str']
+            sim_scenario = results['scenario']
             if not my_args.quiet:
-                print("Scenario: {}\n".format(results['scenario_str']))
+                print("Scenario: {}\n".format(results['scenario']))
                 print("\nInput parameters")
                 print("{}".format(50 * '-'))
                 print(json.dumps(results['input_params_dict'], indent=4, sort_keys=False, default=str))

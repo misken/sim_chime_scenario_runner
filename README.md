@@ -1,10 +1,34 @@
 ## sim_chime_scenario_runner
 
-**[2020-04-08] TEMPORARILY OUT OF COMMISSION - Broken due to CLI changes in penn_chime - fixing asap**
-
 A simple Python module for working with the penn_chime model from the command line or as importable functions. 
 
-Has its own repo now: https://github.com/misken/sim_chime_scenario_runner
+
+**[2020-04-08] TEMPORARILY OUT OF COMMISSION - Broken due to CLI changes in penn_chime - fixing asap**
+
+*** Changes in parameters file (2020-04-08)
+
+* recovered is required but not yet implemented according to -h
+* ALOS parameter names now all consistently plural "-days"
+
+Example file:
+
+    --population 5026226
+    --market-share 0.32
+    --current-hospitalized 935
+    --date-first-hospitalized 2020-02-20
+    --mitigation-date 2020-03-21
+    --current-date 2020-04-05
+    --recovered 0
+    --relative-contact-rate 0.30
+    --hospitalized-rate 0.025
+    --icu-rate 0.0075
+    --ventilated-rate 0.005
+    --infectious-days 14
+    --hospitalized-days 7
+    --icu-days 9
+    --ventilated-days 10
+    --n-days 120
+
 
 * A Jupyter notebook demo showing its use: [using_sim_chime_scenario_runner.ipynb](https://github.com/misken/sim_chime_scenario_runner/blob/master/demos/using_sim_chime_scenario_runner.ipynb)
 
@@ -32,7 +56,7 @@ to make my code easy to maintain if CHIME changes.
 
 - created arg parser just for my added input parameters
 - uses standard CHIME input config file
-- call `penn_chime.cli.parse_args()` to parse the input config file
+- calls penn_chime's argument parser to parse the input config file
 - the main simulation function signature is `sim_chime(scenario: str, p: Parameters):`
 - `sim_chime()` returns a tuple containing the model object and the results dictionary described above.
 
