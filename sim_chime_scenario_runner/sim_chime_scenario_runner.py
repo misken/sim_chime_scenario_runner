@@ -234,7 +234,7 @@ def sim_chimes(scenarios: str, p: Parameters):
     soc_dists = np.arange(0.05, 0.80, 0.05)
 
     # Create range of mitigation dates
-    dates = pd.date_range('2020-03-21', '2020-03-25').to_pydatetime()
+    dates = pd.date_range('2020-03-21', '2020-03-27').to_pydatetime()
     mit_dates =[d.date() for d in dates]
 
     num_scenarios = len(soc_dists)
@@ -306,17 +306,20 @@ def consolidate_scenarios_results(results_list):
 
         params_dict_list.append(results['input_params_dict'].copy())
         vars_df = pd.DataFrame(results['intermediate_variables_dict'], index=[0])
+        vars_df['scenario'] = scenario
         vars_df_list.append(vars_df.copy())
 
-        cons_dfs = {}
-        for df_name, df_list in (
-                ("sim_sir_w_date_df", sim_sir_w_date_df_list),
-                ("dispositions_df", dispositions_df_list),
-                ("admits_df", admits_df_list),
-                ("census_df", census_df_list),
-                ("vars_df", vars_df_list),
-        ):
-            cons_dfs[df_name] = pd.concat(df_list)
+    cons_dfs = {}
+    for df_name, df_list in (
+            ("sim_sir_w_date_df", sim_sir_w_date_df_list),
+            ("dispositions_df", dispositions_df_list),
+            ("admits_df", admits_df_list),
+            ("census_df", census_df_list),
+            ("vars_df", vars_df_list),
+    ):
+        cons_dfs[df_name] = pd.concat(df_list)
+
+    cons_dfs['vars_df'].reset_index(inplace=True, drop=True)
 
     return cons_dfs, params_dict_list
 
