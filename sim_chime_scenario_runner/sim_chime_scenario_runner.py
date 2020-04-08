@@ -143,6 +143,26 @@ def write_results(results, scenario, path):
         json.dump(results['intermediate_variables_dict'], f)
 
 
+def write_scenarios_results(admits_df, census_df, params_vars_df, scenarios, path):
+    """
+
+    :param admits_df:
+    :param census_df:
+    :param param_vars_df:
+    :param scenarios:
+    :param path:
+    :return:
+    """
+
+    # Results dataframes
+    for df, name in (
+        (params_vars_df, "params_vars"),
+        (admits_df, "admits"),
+        (census_df, "census"),
+    ):
+        df.to_csv(path + scenarios + '_' + name + ".csv", index=True)
+
+
 def gather_sim_results(m, scenario, input_params_dict):
     """
 
@@ -250,6 +270,39 @@ def sim_chimes(scenarios: str, p: Parameters):
 
     return results_list
 
+def consolidate_scenarios_results(results_list):
+
+    admits_df_list = []
+    census_df_list = []
+    params_vars = []
+
+    for results in results_list:
+        scenario = results['scenario']
+        (scenarios_name, mit_date, sd_pct) = scenario.split('_')
+        mit_date = pd.to_datetime(mit_date, format="%Y%m%d")
+        sd_pct = float(sd_pct) / 100.0
+
+        admits_df = results['admits_df']
+        census_df = results['census_df']
+
+        admits_df['scenario'] = scenario
+        admits_df['mit_date'] = mit_date
+        admits_df['sd_pct'] = sd_pct
+
+        census_df['scenario'] = scenario
+        census_df['mit_date'] = mit_date
+        census_df['sd_pct'] = sd_pct
+
+        params_vars = {**results['input_params_dict'], **results['intermediate_variables_dict']}
+        params_vars_df = pd.DataFrame(params_vars)
+
+        admits_df_list.append(admits_df.copy())
+        census_df_list.append(census_df.copy())
+        params_vars_df.append(params_vars_df.copy())
+
+    return admits_df_list, census_df_list, params_vars_df
+
+
 
 def main():
     my_args = parse_args()
@@ -304,20 +357,9 @@ def main():
         # Running a bunch of scenarios using sim_chimes()
         results_list = sim_chimes(my_args.scenarios, p)
 
-        for results in results_list:
-            sim_scenario = results['scenario']
-            if not my_args.quiet:
-                print("Scenario: {}\n".format(results['scenario']))
-                print("\nInput parameters")
-                print("{}".format(50 * '-'))
-                print(json.dumps(results['input_params_dict'], indent=4, sort_keys=False, default=str))
+        admits_df, census_df, params_vars_df = consolidate_scenarios_results(results_list)
 
-                print("\nIntermediate variables")
-                print("{}".format(50 * '-'))
-                print(json.dumps(results['intermediate_variables_dict'], indent=4, sort_keys=False))
-                print("\n")
 
-            write_results(results, sim_scenario, output_path)
 
 if __name__ == "__main__":
     main()
