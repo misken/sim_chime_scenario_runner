@@ -2,9 +2,6 @@
 
 A simple Python module for working with the penn_chime model from the command line or as importable functions. 
 
-
-**[2020-04-08] TEMPORARILY OUT OF COMMISSION - Broken due to CLI changes in penn_chime - fixing asap**
-
 *** Changes in parameters file (2020-04-08)
 
 * recovered is required but not yet implemented according to -h
