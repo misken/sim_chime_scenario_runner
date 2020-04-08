@@ -181,15 +181,11 @@ def gather_sim_results(m, scenario, input_params_dict):
     return results
 
 
-def sim_chimes(scenarios: str, p: Parameters = None):
+def sim_chimes(scenarios: str, p: Parameters):
     """
-    Run many chime simulations.
+    Run many chime simulations - demo.
 
-    If `params` is not None, then it is used to initialize all parameters. Any
-    parameter values set to something other than None in the following
-    optional args will update that parameter value. If `params` is None, then
-    all additional args must be other than None. These settings are just
-    for the base parameter values. We can run stuff over ranges as we see it.
+    Need to decide on argument passing
 
     :param scenarios:
     :param params:
@@ -201,8 +197,10 @@ def sim_chimes(scenarios: str, p: Parameters = None):
 
     # Create a range of social distances
 
-    soc_dists = np.arange(0.05, 0.60, 0.05)
-    # array([0.05, 0.1 , 0.15, 0.2 , 0.25, 0.3 , 0.35, 0.4 , 0.45, 0.5 , 0.55, 0.6 ])
+    soc_dists = np.arange(0.05, 0.80, 0.05)
+
+    # Create range of mitigation dates
+    mit_dates = pd.date_range('2020-03-21', '2020-03-25').values
 
     num_scenarios = len(soc_dists)
 
@@ -211,11 +209,13 @@ def sim_chimes(scenarios: str, p: Parameters = None):
     # result dataframes (+ 1 dict containing the scenario inputs)
 
     results_list = []
+    scenarios_list = [(md, sd) for md in mit_dates for sd in soc_dists]
 
-    for sd_pct in soc_dists:
-        sim_scenario = '{}{:.0f}'.format(scenarios, 100 * sd_pct)
+    for (mit_date, sd_pct) in scenarios_list:
+        sim_scenario = '{}_{:%Y%m%d}_{:.0f}'.format(scenarios, mit_date, 100 * sd_pct)
 
         # Update the parameters for this scenario
+        p.mitigation_date = mit_date
         p.relative_contact_rate = sd_pct
         input_params_dict = vars(p)
 

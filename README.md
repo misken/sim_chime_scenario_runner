@@ -1,5 +1,7 @@
 ## sim_chime_scenario_runner
 
+**[2020-04-08] TEMPORARILY OUT OF COMMISSION - Broken due to CLI changes in penn_chime - fixing asap**
+
 A simple Python module for working with the penn_chime model from the command line or as importable functions. 
 
 Has its own repo now: https://github.com/misken/sim_chime_scenario_runner
