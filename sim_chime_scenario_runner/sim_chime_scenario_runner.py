@@ -62,6 +62,7 @@ def parse_args():
 
     return parser.parse_args()
 
+
 def create_params_from_file(file):
     """
     Create CHIME Parameters object from input config file
@@ -450,9 +451,6 @@ def main():
     output_path = my_args.output_path
 
     # Read chime params from configuration file
-    # a = cli.parse_args()
-
-    #p = Parameters.create(os.environ, sys.argv[1:])
     p = create_params_from_file(my_args_dict['parameters'])
 
     input_check = vars(p)
