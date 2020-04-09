@@ -90,7 +90,7 @@ def create_params_from_file(file):
     #     p.date_first_hospitalized = a.date_first_hospitalized
     #
     #
-    # return p
+    return p
 
 
 
