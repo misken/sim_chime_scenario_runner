@@ -20,6 +20,7 @@ from argparse import (
     ArgumentParser,
 )
 from datetime import datetime
+from typing import Dict
 
 from pandas import DataFrame
 import numpy as np
@@ -38,13 +39,16 @@ import json
 def parse_args():
     """Parse args."""
     parser = ArgumentParser(description="SEMI-CHIME")
-    parser.add_argument("file", type=str, help="CHIME config (cfg) file")
+    parser.add_argument("parameters", type=str, help="CHIME config (cfg) file")
     parser.add_argument(
         "--scenario", type=str, default=datetime.now().strftime("%Y.%m.%d.%H.%M."),
         help="Prepended to output filenames. (default is current datetime)"
     )
     parser.add_argument(
         "--output-path", type=str, default="", help="location for output file writing",
+    )
+    parser.add_argument(
+        "-market-share", type=str, default="", help="csv file containing date and market share (<=1.0)",
     )
 
     parser.add_argument(
@@ -323,6 +327,74 @@ def consolidate_scenarios_results(results_list):
 
     return cons_dfs, params_dict_list
 
+
+def market_share_adjustment(market_share_csv, results, scenario, path):
+    """
+
+    :param results:
+    :param scenario:
+    :param path:
+    :return:
+    """
+
+    # Get the hosp, icu and vent rates from the inputs
+    rates = {
+        key: d.rate
+        for key, d in results['input_params_dict']['dispositions'].items()
+    }
+
+    # Read market share file
+    market_share_df = pd.read_csv(market_share_csv, parse_dates=['date'])
+
+    sim_sir_w_date_df = results['sim_sir_w_date_df'].copy()
+    all_w_mkt_df = pd.merge(sim_sir_w_date_df, market_share_df, on=['date'], how='left')
+
+    all_w_mkt_df = calculate_dispositions_mkt_adj(all_w_mkt_df, rates)
+    all_w_mkt_df = calculate_admits_mkt_adj(all_w_mkt_df, rates)
+    all_w_mkt_df = calculate_census_mkt_adj(all_w_mkt_df, rates)
+
+    all_w_mkt_df
+
+
+def calculate_dispositions_mkt_adj(
+    mkt_adj_df: pd.DataFrame,
+    rates: Dict[str, float],
+):
+    """Build dispositions dataframe of patients adjusted by rate and market_share."""
+    for key, rate in rates.items():
+        mkt_adj_df["ever_" + key] = (mkt_adj_df.infected +
+                                     mkt_adj_df.recovered) * rate * mkt_adj_df.market_share
+
+    return mkt_adj_df
+
+
+def calculate_admits_mkt_adj(mkt_adj_df: pd.DataFrame, rates):
+    """Build admits dataframe from dispositions."""
+    for key in rates.keys():
+        ever = mkt_adj_df["ever_" + key]
+        admit = np.empty_like(ever)
+        admit[0] = np.nan
+        admit[1:] = ever[1:] - ever[:-1]
+        mkt_adj_df["admits_" + key] = admit
+
+    return mkt_adj_df
+
+
+def calculate_census_mkt_adj(
+    mkt_adj_df: pd.DataFrame,
+    lengths_of_stay: Dict[str, int],
+):
+    """Average Length of Stay for each disposition of COVID-19 case (total guesses)"""
+    n_days = mkt_adj_df["day"].shape[0]
+    for key, los in lengths_of_stay.items():
+        cumsum = np.empty(n_days + los)
+        cumsum[:los+1] = 0.0
+        cumsum[los+1:] = mkt_adj_df["admits_" + key][1:].cumsum()
+
+        census = cumsum[los:] - cumsum[:-los]
+        mkt_adj_df["census_" + key] = census
+
+    return mkt_adj_df
 
 def main():
     my_args = parse_args()
