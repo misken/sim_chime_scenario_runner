@@ -15,6 +15,8 @@ containing parameter and variable values.
 
 import os
 from collections import OrderedDict
+from pathlib import Path
+
 from argparse import (
     Action,
     ArgumentParser,
@@ -48,7 +50,7 @@ def parse_args():
         "--output-path", type=str, default="", help="location for output file writing",
     )
     parser.add_argument(
-        "-market-share", type=str, default="", help="csv file containing date and market share (<=1.0)",
+        "--market-share", type=str, default="", help="csv file containing date and market share (<=1.0)",
     )
 
     parser.add_argument(
@@ -68,8 +70,8 @@ def create_params_from_file(file):
     :return:
     """
     # Update sys.arg so we can call cli.parse_args()
-    sys.argv = [sys.argv[0], '--parameters', file]
-    p = Parameters.create(os.environ, sys.argv[1:])
+    args = ['--parameters', file]
+    p = Parameters.create(os.environ, args)
 
     # a = cli.parse_args()
     #
@@ -94,7 +96,7 @@ def create_params_from_file(file):
     #     p.date_first_hospitalized = a.date_first_hospitalized
     #
     #
-    # return p
+    return p
 
 
 
@@ -328,32 +330,69 @@ def consolidate_scenarios_results(results_list):
     return cons_dfs, params_dict_list
 
 
-def market_share_adjustment(market_share_csv, results, scenario, path):
+def market_share_adjustment(market_share_csv, base_results, mkt_scenario):
     """
 
-    :param results:
-    :param scenario:
-    :param path:
-    :return:
+    :param market_share_csv:
+    :param base_results:
+    :param mkt_scenario:
+    :return: results dictionary
     """
 
     # Get the hosp, icu and vent rates from the inputs
     rates = {
         key: d.rate
-        for key, d in results['input_params_dict']['dispositions'].items()
+        for key, d in base_results['input_params_dict']['dispositions'].items()
+    }
+
+    days = {
+        key: d.days
+        for key, d in base_results['input_params_dict']['dispositions'].items()
     }
 
     # Read market share file
     market_share_df = pd.read_csv(market_share_csv, parse_dates=['date'])
 
-    sim_sir_w_date_df = results['sim_sir_w_date_df'].copy()
+    sim_sir_w_date_df = base_results['sim_sir_w_date_df'].copy()
     all_w_mkt_df = pd.merge(sim_sir_w_date_df, market_share_df, on=['date'], how='left')
 
     all_w_mkt_df = calculate_dispositions_mkt_adj(all_w_mkt_df, rates)
     all_w_mkt_df = calculate_admits_mkt_adj(all_w_mkt_df, rates)
-    all_w_mkt_df = calculate_census_mkt_adj(all_w_mkt_df, rates)
+    all_w_mkt_df = calculate_census_mkt_adj(all_w_mkt_df, days)
 
-    all_w_mkt_df
+    dispositions_mkt_df = pd.DataFrame(data={
+        'day': all_w_mkt_df['day'],
+        'date': all_w_mkt_df['date'],
+        'ever_hospitalized': all_w_mkt_df['ever_hospitalized'],
+        'ever_icu': all_w_mkt_df['ever_icu'],
+        'ever_ventilated': all_w_mkt_df['ever_ventilated'],
+    })
+    admits_mkt_df = pd.DataFrame(data={
+        'day': all_w_mkt_df['day'],
+        'date': all_w_mkt_df['date'],
+        'admits_hospitalized': all_w_mkt_df['admits_hospitalized'],
+        'admits_icu': all_w_mkt_df['admits_icu'],
+        'admits_ventilated': all_w_mkt_df['admits_ventilated'],
+    })
+    census_mkt_df = pd.DataFrame(data={
+        'day': all_w_mkt_df['day'],
+        'date': all_w_mkt_df['date'],
+        'census_hospitalized': all_w_mkt_df['census_hospitalized'],
+        'census_icu': all_w_mkt_df['census_icu'],
+        'census_ventilated': all_w_mkt_df['census_ventilated'],
+    })
+
+    results_mkt = {
+        'scenario': mkt_scenario,
+        'input_params_dict': base_results['input_params_dict'],
+        'intermediate_variables_dict': base_results['intermediate_variables_dict'],
+        'sim_sir_w_date_df': base_results['sim_sir_w_date_df'],
+        'dispositions_df': dispositions_mkt_df,
+        'admits_df': admits_mkt_df,
+        'census_df': census_mkt_df,
+    }
+
+    return results_mkt
 
 
 def calculate_dispositions_mkt_adj(
@@ -371,7 +410,9 @@ def calculate_dispositions_mkt_adj(
 def calculate_admits_mkt_adj(mkt_adj_df: pd.DataFrame, rates):
     """Build admits dataframe from dispositions."""
     for key in rates.keys():
-        ever = mkt_adj_df["ever_" + key]
+        # Need to convert Series to ndarray else get weird slicing errors
+        # when doing admit[1:] = ever[1:] - ever[:-1]. Strange.
+        ever = np.array(mkt_adj_df["ever_" + key])
         admit = np.empty_like(ever)
         admit[0] = np.nan
         admit[1:] = ever[1:] - ever[:-1]
@@ -386,10 +427,12 @@ def calculate_census_mkt_adj(
 ):
     """Average Length of Stay for each disposition of COVID-19 case (total guesses)"""
     n_days = mkt_adj_df["day"].shape[0]
+
     for key, los in lengths_of_stay.items():
+        raw = np.array(mkt_adj_df["admits_" + key])
         cumsum = np.empty(n_days + los)
         cumsum[:los+1] = 0.0
-        cumsum[los+1:] = mkt_adj_df["admits_" + key][1:].cumsum()
+        cumsum[los+1:] = raw[1:].cumsum()
 
         census = cumsum[los:] - cumsum[:-los]
         mkt_adj_df["census_" + key] = census
@@ -409,24 +452,9 @@ def main():
     # Read chime params from configuration file
     # a = cli.parse_args()
 
-    p = Parameters.create(os.environ, sys.argv[1:])
+    #p = Parameters.create(os.environ, sys.argv[1:])
+    p = create_params_from_file(my_args_dict['parameters'])
 
-    # p = Parameters(
-    #     current_hospitalized=a.current_hospitalized,
-    #     mitigation_date=a.mitigation_date,
-    #     current_date=a.current_date,
-    #     date_first_hospitalized=a.date_first_hospitalized,
-    #     doubling_time=a.doubling_time,
-    #     infectious_days=a.infectious_days,
-    #     market_share=a.market_share,
-    #     n_days=a.n_days,
-    #     relative_contact_rate=a.relative_contact_rate,
-    #     population=a.population,
-    #
-    #     hospitalized=Disposition(a.hospitalized_rate, a.hospitalized_days),
-    #     icu=Disposition(a.icu_rate, a.icu_days),
-    #     ventilated=Disposition(a.ventilated_rate, a.ventilated_days),
-    # )
     input_check = vars(p)
 
     if my_args.scenarios is None:
@@ -445,6 +473,17 @@ def main():
             print("\n")
 
         write_results(results, scenario, output_path)
+
+        # Check if doing market share adjustments
+        if my_args.market_share is not None:
+            mkt_scenario = Path(my_args.market_share).stem
+            mkt_share_csv = my_args.market_share
+            results_mkt = market_share_adjustment(mkt_share_csv,
+                                                  results, mkt_scenario)
+
+            write_results(results_mkt, mkt_scenario, output_path)
+
+
     else:
         # Running a bunch of scenarios using sim_chimes()
         scenarios_name = my_args.scenarios
@@ -456,6 +495,8 @@ def main():
 
         # Write out consolidated csv files
         write_scenarios_results(cons_dfs, params_dict_list, scenarios_name, output_path)
+
+
 
 
 if __name__ == "__main__":
