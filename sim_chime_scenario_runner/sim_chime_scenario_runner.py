@@ -50,7 +50,7 @@ def parse_args():
         "--output-path", type=str, default="", help="location for output file writing",
     )
     parser.add_argument(
-        "--market-share", type=str, default="", help="csv file containing date and market share (<=1.0)",
+        "--market-share", type=str, default=None, help="csv file containing date and market share (<=1.0)",
     )
 
     parser.add_argument(
@@ -135,6 +135,8 @@ def write_results(results, scenario, path):
         (results["dispositions_df"], "dispositions"),
         (results["admits_df"], "admits"),
         (results["census_df"], "census"),
+        (results["adm_cen_wide_df"], "adm_cen_wide"),
+        (results["adm_cen_long_df"], "adm_cen_long"),
     ):
         df.to_csv(path + scenario + '_' + name + ".csv", index=True)
 
@@ -148,7 +150,7 @@ def write_results(results, scenario, path):
         json.dump(results['input_params_dict'], f, default=str)
 
     with open(path + scenario + "_key_vars.json", "w") as f:
-        json.dump(results['intermediate_variables_dict'], f)
+        json.dump(results['important_variables_dict'], f)
 
 
 def write_scenarios_results(cons_dfs, param_dict_list, scenarios, path):
@@ -192,24 +194,63 @@ def gather_sim_results(m, scenario, input_params_dict):
     doubling_time_t = m.doubling_time_t
 
     intermediate_variables = OrderedDict({
-        "intrinsic_growth_rate": intrinsic_growth_rate,
-        "gamma": gamma,
-        "beta": beta,
-        "r_naught": r_naught,
-        "r_t": r_t,
-        "doubling_time_t": doubling_time_t,
+        'result_type': 'simsir',
+        'scenario': scenario,
+        'intrinsic_growth_rate': intrinsic_growth_rate,
+        'gamma': gamma,
+        'beta': beta,
+        'r_naught': r_naught,
+        'r_t': r_t,
+        'doubling_time_t': doubling_time_t,
     })
 
+    wide_df, long_df = join_and_melt(m.admits_df, m.census_df, scenario)
+
     results = {
+        'result_type': 'simsir',
         'scenario': scenario,
         'input_params_dict': input_params_dict,
-        'intermediate_variables_dict': intermediate_variables,
+        'important_variables_dict': intermediate_variables,
         'sim_sir_w_date_df': m.sim_sir_w_date_df,
         'dispositions_df': m.dispositions_df,
         'admits_df': m.admits_df,
         'census_df': m.census_df,
+        'adm_cen_wide_df': wide_df,
+        'adm_cen_long_df': long_df
     }
     return results
+
+def join_and_melt(adm_df, cen_def, scenario):
+    """
+    Create wide and long DataFrames with combined admit and census data suitable for
+    plotting with Seaborn or ggplot2 (in R).
+
+    :param adm_df:
+    :param cen_def:
+    :param scenario:
+    :return:
+    """
+
+    wide_df = pd.merge(adm_df, cen_def, left_index=True, right_index=True,
+                       suffixes=('_adm', '_cen'), validate="1:1")
+
+    wide_df['scenario'] = scenario
+
+    pd.testing.assert_series_equal(wide_df['day_adm'],
+                                         wide_df['day_cen'], check_names=False)
+
+    pd.testing.assert_series_equal(wide_df['date_adm'],
+                                         wide_df['date_cen'], check_names=False)
+
+    wide_df.rename({'day_adm': 'day', 'date_adm': 'date'}, axis='columns', inplace=True)
+
+    wide_df.drop(['day_cen', 'date_cen'], axis='columns', inplace=True)
+
+    long_df = pd.melt(wide_df,
+                      id_vars=['scenario', 'day', 'date'],
+                      var_name='dispo_measure', value_name='cases')
+
+    return wide_df, long_df
 
 
 def sim_chimes(scenarios: str, p: Parameters):
@@ -312,7 +353,7 @@ def consolidate_scenarios_results(results_list):
             df_list.append(df.copy())
 
         params_dict_list.append(results['input_params_dict'].copy())
-        vars_df = pd.DataFrame(results['intermediate_variables_dict'], index=[0])
+        vars_df = pd.DataFrame(results['important_variables_dict'], index=[0])
         vars_df['scenario'] = scenario
         vars_df_list.append(vars_df.copy())
 
@@ -383,14 +424,21 @@ def market_share_adjustment(market_share_csv, base_results, mkt_scenario):
         'census_ventilated': all_w_mkt_df['census_ventilated'],
     })
 
+    wide_df, long_df = join_and_melt(admits_mkt_df, census_mkt_df, mkt_scenario)
+
+    base_results['important_variables_dict']['result_type'] = 'postprocessor'
+
     results_mkt = {
+        'result_type': 'postprocessor',
         'scenario': mkt_scenario,
         'input_params_dict': base_results['input_params_dict'],
-        'intermediate_variables_dict': base_results['intermediate_variables_dict'],
+        'important_variables_dict': base_results['important_variables_dict'],
         'sim_sir_w_date_df': base_results['sim_sir_w_date_df'],
         'dispositions_df': dispositions_mkt_df,
         'admits_df': admits_mkt_df,
         'census_df': census_mkt_df,
+        'adm_cen_wide_df': wide_df,
+        'adm_cen_long_df': long_df
     }
 
     return results_mkt
@@ -467,7 +515,7 @@ def main():
 
             print("\nIntermediate variables")
             print("{}".format(50 * '-'))
-            print(json.dumps(results['intermediate_variables_dict'], indent=4, sort_keys=False))
+            print(json.dumps(results['important_variables_dict'], indent=4, sort_keys=False))
             print("\n")
 
         write_results(results, scenario, output_path)
@@ -480,7 +528,6 @@ def main():
                                                   results, mkt_scenario)
 
             write_results(results_mkt, mkt_scenario, output_path)
-
 
     else:
         # Running a bunch of scenarios using sim_chimes()
