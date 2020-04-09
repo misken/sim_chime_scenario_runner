@@ -401,7 +401,7 @@ def main():
     my_args_dict = vars(my_args)
 
     # Update sys.arg so we can call cli.parse_args()
-    sys.argv = [sys.argv[0], '--parameters', my_args_dict['file']]
+    sys.argv = [sys.argv[0], '--parameters', my_args_dict['parameters']]
 
     scenario = my_args.scenario
     output_path = my_args.output_path
