@@ -52,6 +52,13 @@ def parse_args():
     parser.add_argument(
         "--market-share", type=str, default=None, help="csv file containing date and market share (<=1.0)",
     )
+    parser.add_argument(
+        "--stack", action='store_true', help="Include to stack market share and scenario wide/long dfs",
+    )
+    parser.add_argument(
+        "--actual", type=str, default=None,
+        help="csv file containing day, date and actual measures (e.g. admits and census",
+    )
 
     parser.add_argument(
         "--scenarios", type=str,
@@ -444,6 +451,25 @@ def market_share_adjustment(market_share_csv, base_results, mkt_scenario):
     return results_mkt
 
 
+def include_actual(results, actual_csv):
+    actual_df = pd.read_csv(actual_csv, parse_dates=['date'])
+    wide_df = results['adm_cen_wide_df']
+    wide_w_act_df = pd.merge(wide_df, actual_df, left_on=['date'], right_on=['date'], how='left')
+    wide_w_act_df.rename({'day_x': 'day'}, axis='columns', inplace=True)
+    wide_w_act_df.drop(['day_y'], axis='columns', inplace=True)
+
+    # Now recreate long version. It's assumed that the only columns in actual are
+    # day, date, and meltable measures.
+
+    long_df = pd.melt(wide_w_act_df,
+                      id_vars=['scenario', 'day', 'date'],
+                      var_name='dispo_measure', value_name='cases')
+
+    results['adm_cen_wide_df'] = wide_w_act_df.copy()
+    results['adm_cen_long_df'] = long_df
+
+    return results
+
 def calculate_dispositions_mkt_adj(
     mkt_adj_df: pd.DataFrame,
     rates: Dict[str, float],
@@ -518,16 +544,34 @@ def main():
             print(json.dumps(results['important_variables_dict'], indent=4, sort_keys=False))
             print("\n")
 
-        write_results(results, scenario, output_path)
-
         # Check if doing market share adjustments
         if my_args.market_share is not None:
+
             mkt_scenario = Path(my_args.market_share).stem
+            # Make sure mkt_scenario != scenario since will be value in wide and long dfs
+            if mkt_scenario == scenario:
+                mkt_scenario += '_mkt'
             mkt_share_csv = my_args.market_share
             results_mkt = market_share_adjustment(mkt_share_csv,
                                                   results, mkt_scenario)
 
-            write_results(results_mkt, mkt_scenario, output_path)
+            # Stack wide and long results dataframes?
+            if my_args.stack:
+                for key in ('wide_df', 'long_df'):
+                    df = results['adm_cen_' + key]
+                    mkt_df = results_mkt['adm_cen_' + key]
+                    df = pd.concat([df, mkt_df])
+                    results['adm_cen_' + key] = df.copy()
+
+            else:
+                write_results(results_mkt, mkt_scenario, output_path)
+
+        # Check if including actual values
+        if my_args.actual is not None:
+            results = include_actual(results, my_args.actual)
+
+        # Write out results (may or may not be stacked)
+        write_results(results, scenario, output_path)
 
     else:
         # Running a bunch of scenarios using sim_chimes()
