@@ -5,7 +5,7 @@ A simple Python module for working with the penn_chime model from the command li
 ### sim_chime_scenario_runner 2.0.0-chime.1.1.3
 
 Added a bunch of new functionality but still more to do, especially for experiments (batches of scenarios).
-See [release notes](RELEASE.rst) for details.
+See [release notes](RELEASE.md) for details.
 
 ### About using
 
