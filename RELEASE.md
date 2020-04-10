@@ -1,24 +1,21 @@
+# Release Notes
 
-=============
-Release Notes
-=============
 
 This is the list of changes to sim_chime_scenario_runner between each release. For full details,
 see the commit logs at http://github.com/misken/sim_chime_scenario_runner
 
-What is it
-----------
+## What is it
+
 
 A simple Python module for working with the penn_chime model from the command line or as importable functions.
 
-Where to get it
----------------
+## Where to get it
+
 
 * Source code: http://github.com/misken/sim_chime_scenario_runner
 * Documentation: See Jupyter notebooks in docs folder
 
-sim_chime_scenario_runner 2.0.0-chime.1.1.3
-===========================================
+### sim_chime_scenario_runner 2.0.0-chime.1.1.3
 
 Added a bunch of new functionality but still more to do, especially for experiments (batches of scenarios).
 
@@ -56,8 +53,7 @@ as I have to adapt to their changes.
 **Bug Fixes**
 
 
-sim_chime_scenario_runner 1.1.3
-===============================
+###  sim_chime_scenario_runner 1.1.3
 
 **Release date:** 2020-04-08
 
@@ -95,8 +91,8 @@ Example file:
 **Bug Fixes**
 
 
-sim_chime_scenario_runner 1.1.2
-===============================
+###  sim_chime_scenario_runner 1.1.2
+
 
 **Release date:** 2020-04-07
 
@@ -141,16 +137,5 @@ I did my best to make my code easy to maintain if CHIME changes.
 **Bug Fixes**
 
 
-
-
-
-
-
-hillmaker 0.1.0
-===============
-
-**Release date:** 2016-01-22
-
-**New features**
 
 
