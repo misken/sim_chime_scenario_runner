@@ -2,7 +2,15 @@
 
 A simple Python module for working with the penn_chime model from the command line or as importable functions. 
 
-*** Changes in parameters file (2020-04-08)
+### sim_chime_scenario_runner 2.0.0-chime.1.1.3
+
+Added a bunch of new functionality but still more to do, especially for experiments (batches of scenarios).
+See release notes for details.
+
+Changed the version numbering to specifically indate which major CHIME version this is compatible with
+as I have to adapt to their canges.
+
+### Changes in parameters file (2020-04-08)
 
 * recovered is required but not yet implemented according to -h
 * ALOS parameter names now all consistently plural "-days"

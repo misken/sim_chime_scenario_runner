@@ -15,11 +15,14 @@ containing parameter and variable values.
 
 import os
 from collections import OrderedDict
+from pathlib import Path
+
 from argparse import (
     Action,
     ArgumentParser,
 )
 from datetime import datetime
+from typing import Dict, List
 
 from pandas import DataFrame
 import numpy as np
@@ -38,7 +41,7 @@ import json
 def parse_args():
     """Parse args."""
     parser = ArgumentParser(description="SEMI-CHIME")
-    parser.add_argument("file", type=str, help="CHIME config (cfg) file")
+    parser.add_argument("parameters", type=str, help="CHIME config (cfg) file")
     parser.add_argument(
         "--scenario", type=str, default=datetime.now().strftime("%Y.%m.%d.%H.%M."),
         help="Prepended to output filenames. (default is current datetime)"
@@ -46,15 +49,26 @@ def parse_args():
     parser.add_argument(
         "--output-path", type=str, default="", help="location for output file writing",
     )
+    parser.add_argument(
+        "--market-share", type=str, default=None, help="csv file containing date and market share (<=1.0)",
+    )
+    parser.add_argument(
+        "--stack", action='store_true', help="Include to stack market share and scenario wide/long dfs",
+    )
+    parser.add_argument(
+        "--actual", type=str, default=None,
+        help="csv file containing day, date and actual measures (e.g. admits and census",
+    )
 
     parser.add_argument(
-        "--scenarios", type=str,
+        "--experiment", type=str,
         help="Undocumented feature: if not None, sim_chimes() function is called and a whole bunch of scenarios are run."
     )
     parser.add_argument("--quiet", action='store_true',
                         help="If True, suppresses output messages (default=False")
 
     return parser.parse_args()
+
 
 def create_params_from_file(file):
     """
@@ -63,33 +77,10 @@ def create_params_from_file(file):
     :param file:
     :return:
     """
-    # Update sys.arg so we can call cli.parse_args()
-    sys.argv = [sys.argv[0], '--parameters', file]
-    p = Parameters.create(os.environ, sys.argv[1:])
 
-    # a = cli.parse_args()
-    #
-    # p = Parameters(
-    #     current_hospitalized=a.current_hospitalized,
-    #     mitigation_date=a.mitigation_date,
-    #     current_date=a.current_date,
-    #     infectious_days=a.infectious_days,
-    #     market_share=a.market_share,
-    #     n_days=a.n_days,
-    #     relative_contact_rate=a.relative_contact_rate,
-    #     population=a.population,
-    #
-    #     hospitalized=Disposition(a.hospitalized_rate, a.hospitalized_days),
-    #     icu=Disposition(a.icu_rate, a.icu_days),
-    #     ventilated=Disposition(a.ventilated_rate, a.ventilated_days),
-    # )
-    #
-    # if a.date_first_hospitalized is None:
-    #     p.doubling_time = a.doubling_time
-    # else:
-    #     p.date_first_hospitalized = a.date_first_hospitalized
-    #
-    #
+    args = ['--parameters', file]
+    p = Parameters.create(os.environ, args)
+
     return p
 
 
@@ -128,6 +119,8 @@ def write_results(results, scenario, path):
         (results["dispositions_df"], "dispositions"),
         (results["admits_df"], "admits"),
         (results["census_df"], "census"),
+        (results["adm_cen_wide_df"], "adm_cen_wide"),
+        (results["adm_cen_long_df"], "adm_cen_long"),
     ):
         df.to_csv(path + scenario + '_' + name + ".csv", index=True)
 
@@ -141,10 +134,10 @@ def write_results(results, scenario, path):
         json.dump(results['input_params_dict'], f, default=str)
 
     with open(path + scenario + "_key_vars.json", "w") as f:
-        json.dump(results['intermediate_variables_dict'], f)
+        json.dump(results['important_variables_dict'], f)
 
 
-def write_scenarios_results(cons_dfs, param_dict_list, scenarios, path):
+def write_experiment_results(cons_dfs, param_dict_list, scenarios, path):
     """
 
     :param admits_df:
@@ -185,33 +178,72 @@ def gather_sim_results(m, scenario, input_params_dict):
     doubling_time_t = m.doubling_time_t
 
     intermediate_variables = OrderedDict({
-        "intrinsic_growth_rate": intrinsic_growth_rate,
-        "gamma": gamma,
-        "beta": beta,
-        "r_naught": r_naught,
-        "r_t": r_t,
-        "doubling_time_t": doubling_time_t,
+        'result_type': 'simsir',
+        'scenario': scenario,
+        'intrinsic_growth_rate': intrinsic_growth_rate,
+        'gamma': gamma,
+        'beta': beta,
+        'r_naught': r_naught,
+        'r_t': r_t,
+        'doubling_time_t': doubling_time_t,
     })
 
+    wide_df, long_df = join_and_melt(m.admits_df, m.census_df, scenario)
+
     results = {
+        'result_type': 'simsir',
         'scenario': scenario,
         'input_params_dict': input_params_dict,
-        'intermediate_variables_dict': intermediate_variables,
+        'important_variables_dict': intermediate_variables,
         'sim_sir_w_date_df': m.sim_sir_w_date_df,
         'dispositions_df': m.dispositions_df,
         'admits_df': m.admits_df,
         'census_df': m.census_df,
+        'adm_cen_wide_df': wide_df,
+        'adm_cen_long_df': long_df
     }
     return results
 
+def join_and_melt(adm_df, cen_def, scenario):
+    """
+    Create wide and long DataFrames with combined admit and census data suitable for
+    plotting with Seaborn or ggplot2 (in R).
 
-def sim_chimes(scenarios: str, p: Parameters):
+    :param adm_df:
+    :param cen_def:
+    :param scenario:
+    :return:
+    """
+
+    wide_df = pd.merge(adm_df, cen_def, left_index=True, right_index=True,
+                       suffixes=('_adm', '_cen'), validate="1:1")
+
+    wide_df['scenario'] = scenario
+
+    pd.testing.assert_series_equal(wide_df['day_adm'],
+                                         wide_df['day_cen'], check_names=False)
+
+    pd.testing.assert_series_equal(wide_df['date_adm'],
+                                         wide_df['date_cen'], check_names=False)
+
+    wide_df.rename({'day_adm': 'day', 'date_adm': 'date'}, axis='columns', inplace=True)
+
+    wide_df.drop(['day_cen', 'date_cen'], axis='columns', inplace=True)
+
+    long_df = pd.melt(wide_df,
+                      id_vars=['scenario', 'day', 'date'],
+                      var_name='dispo_measure', value_name='cases')
+
+    return wide_df, long_df
+
+
+def sim_chimes(experiment: str, p: Parameters):
     """
     Run many chime simulations - demo.
 
     Need to decide on argument passing
 
-    :param scenarios:
+    :param experiment:
     :param params:
 
     :return:
@@ -230,29 +262,35 @@ def sim_chimes(scenarios: str, p: Parameters):
         print("Gonna be trouble. Either date_first_hospitalized or doubling_time should be set.")
 
     # Create a range of social distances
-
-    soc_dists = np.arange(0.05, 0.80, 0.05)
+    relative_contact_rates = np.arange(0.05, 0.80, 0.05)
 
     # Create range of mitigation dates
-    dates = pd.date_range('2020-03-21', '2020-03-25').to_pydatetime()
-    mit_dates =[d.date() for d in dates]
+    dates = pd.date_range('2020-03-21', '2020-03-27').to_pydatetime()
+    mitigation_dates =[d.date() for d in dates]
 
-    num_scenarios = len(soc_dists)
+    # Create a range of recovery times
+    infectious_days = np.arange(7.00, 14.0, 1.00)
+
+    num_scenarios = len(relative_contact_rates)
 
     # We can store outputs any way we want. For this demo, just going to
     # use a master list. # This will be a list of dicts of the
     # result dataframes (+ 1 dict containing the scenario inputs)
 
     results_list = []
-    scenarios_list = [(md, sd) for md in mit_dates for sd in soc_dists]
+    scenarios_list = [(md, rc, id) for md in mitigation_dates
+                      for rc in relative_contact_rates
+                      for id in infectious_days]
 
-    for (mit_date, sd_pct) in scenarios_list:
+    for (mit_date, rcr_pct, inf_days) in scenarios_list:
 
-        sim_scenario = '{}_{:%Y%m%d}_{:.0f}'.format(scenarios, mit_date, 100 * sd_pct)
+        sim_scenario = '{}_md{:%m%d}rc{:.0f}id{}'.format(experiment, mit_date, 100 * rcr_pct, int(inf_days))
 
         # Update the parameters for this scenario
         p.mitigation_date = mit_date
-        p.relative_contact_rate = sd_pct
+        p.relative_contact_rate = rcr_pct
+        p.infectious_days = inf_days
+
         if which_param_set == 'date_first_hospitalized':
             p.doubling_time = None
         else:
@@ -267,13 +305,12 @@ def sim_chimes(scenarios: str, p: Parameters):
         results = gather_sim_results(m, sim_scenario, input_params_dict)
 
         # Append results to results list
-
         results_list.append(results.copy())
 
     return results_list
 
 
-def consolidate_scenarios_results(results_list):
+def consolidate_scenarios_results(experiment: str, results_list: List):
 
     admits_df_list = []
     census_df_list = []
@@ -281,80 +318,208 @@ def consolidate_scenarios_results(results_list):
     sim_sir_w_date_df_list = []
     vars_df_list = []
     params_dict_list = []
+    wide_df_list = []
+    long_df_list = []
 
     for results in results_list:
         scenario = results['scenario']
-        (scenarios_name, mit_date, sd_pct) = scenario.split('_')
-        mit_date = pd.to_datetime(mit_date, format="%Y%m%d")
-        sd_pct = float(sd_pct) / 100.0
+        mit_date = pd.to_datetime(results['input_params_dict']['mitigation_date'], format="%Y-%m-%d")
+        rel_con_rate = results['input_params_dict']['relative_contact_rate']
+        inf_days = results['input_params_dict']['infectious_days']
 
         admits_df = results['admits_df']
         census_df = results['census_df']
         dispositions_df = results['dispositions_df']
         sim_sir_w_date_df = results['sim_sir_w_date_df']
+        wide_df = results['adm_cen_wide_df']
+        long_df = results['adm_cen_long_df']
 
         for df, df_list in (
                 (sim_sir_w_date_df, sim_sir_w_date_df_list),
                 (dispositions_df, dispositions_df_list),
                 (admits_df, admits_df_list),
                 (census_df, census_df_list),
+                (wide_df, wide_df_list),
+                (long_df, long_df_list),
         ):
             df['scenario'] = scenario
             df['mit_date'] = mit_date
-            df['sd_pct'] = sd_pct
+            df['rel_con_rate'] = rel_con_rate
+            df['inf_days'] = inf_days
             df_list.append(df.copy())
 
         params_dict_list.append(results['input_params_dict'].copy())
-        vars_df = pd.DataFrame(results['intermediate_variables_dict'], index=[0])
+        vars_df = pd.DataFrame(results['important_variables_dict'], index=[0])
+        vars_df['scenario'] = scenario
         vars_df_list.append(vars_df.copy())
 
-        cons_dfs = {}
-        for df_name, df_list in (
-                ("sim_sir_w_date_df", sim_sir_w_date_df_list),
-                ("dispositions_df", dispositions_df_list),
-                ("admits_df", admits_df_list),
-                ("census_df", census_df_list),
-                ("vars_df", vars_df_list),
-        ):
-            cons_dfs[df_name] = pd.concat(df_list)
+    cons_dfs = {}
+    for df_name, df_list in (
+            ("sim_sir_w_date_df", sim_sir_w_date_df_list),
+            ("dispositions_df", dispositions_df_list),
+            ("admits_df", admits_df_list),
+            ("census_df", census_df_list),
+            ("vars_df", vars_df_list),
+            ("adm_cen_wide_df", wide_df_list),
+            ("adm_cen_long_df", long_df_list),
+    ):
+        cons_dfs[df_name] = pd.concat(df_list)
+
+    cons_dfs['vars_df'].reset_index(inplace=True, drop=True)
 
     return cons_dfs, params_dict_list
+
+
+def market_share_adjustment(market_share_csv, base_results, mkt_scenario):
+    """
+
+    :param market_share_csv:
+    :param base_results:
+    :param mkt_scenario:
+    :return: results dictionary
+    """
+
+    # Get the hosp, icu and vent rates from the inputs
+    rates = {
+        key: d.rate
+        for key, d in base_results['input_params_dict']['dispositions'].items()
+    }
+
+    days = {
+        key: d.days
+        for key, d in base_results['input_params_dict']['dispositions'].items()
+    }
+
+    # Read market share file
+    market_share_df = pd.read_csv(market_share_csv, parse_dates=['date'])
+
+    sim_sir_w_date_df = base_results['sim_sir_w_date_df'].copy()
+    all_w_mkt_df = pd.merge(sim_sir_w_date_df, market_share_df, on=['date'], how='left')
+
+    all_w_mkt_df = calculate_dispositions_mkt_adj(all_w_mkt_df, rates)
+    all_w_mkt_df = calculate_admits_mkt_adj(all_w_mkt_df, rates)
+    all_w_mkt_df = calculate_census_mkt_adj(all_w_mkt_df, days)
+
+    dispositions_mkt_df = pd.DataFrame(data={
+        'day': all_w_mkt_df['day'],
+        'date': all_w_mkt_df['date'],
+        'ever_hospitalized': all_w_mkt_df['ever_hospitalized'],
+        'ever_icu': all_w_mkt_df['ever_icu'],
+        'ever_ventilated': all_w_mkt_df['ever_ventilated'],
+    })
+    admits_mkt_df = pd.DataFrame(data={
+        'day': all_w_mkt_df['day'],
+        'date': all_w_mkt_df['date'],
+        'admits_hospitalized': all_w_mkt_df['admits_hospitalized'],
+        'admits_icu': all_w_mkt_df['admits_icu'],
+        'admits_ventilated': all_w_mkt_df['admits_ventilated'],
+    })
+    census_mkt_df = pd.DataFrame(data={
+        'day': all_w_mkt_df['day'],
+        'date': all_w_mkt_df['date'],
+        'census_hospitalized': all_w_mkt_df['census_hospitalized'],
+        'census_icu': all_w_mkt_df['census_icu'],
+        'census_ventilated': all_w_mkt_df['census_ventilated'],
+    })
+
+    wide_df, long_df = join_and_melt(admits_mkt_df, census_mkt_df, mkt_scenario)
+
+    base_results['important_variables_dict']['result_type'] = 'postprocessor'
+
+    results_mkt = {
+        'result_type': 'postprocessor',
+        'scenario': mkt_scenario,
+        'input_params_dict': base_results['input_params_dict'],
+        'important_variables_dict': base_results['important_variables_dict'],
+        'sim_sir_w_date_df': base_results['sim_sir_w_date_df'],
+        'dispositions_df': dispositions_mkt_df,
+        'admits_df': admits_mkt_df,
+        'census_df': census_mkt_df,
+        'adm_cen_wide_df': wide_df,
+        'adm_cen_long_df': long_df
+    }
+
+    return results_mkt
+
+
+def include_actual(results, actual_csv):
+    actual_df = pd.read_csv(actual_csv, parse_dates=['date'])
+    wide_df = results['adm_cen_wide_df']
+    wide_w_act_df = pd.merge(wide_df, actual_df, left_on=['date'], right_on=['date'], how='left')
+    wide_w_act_df.rename({'day_x': 'day'}, axis='columns', inplace=True)
+    wide_w_act_df.drop(['day_y'], axis='columns', inplace=True)
+
+    # Now recreate long version. It's assumed that the only columns in actual are
+    # day, date, and meltable measures.
+
+    long_df = pd.melt(wide_w_act_df,
+                      id_vars=['scenario', 'day', 'date'],
+                      var_name='dispo_measure', value_name='cases')
+
+    results['adm_cen_wide_df'] = wide_w_act_df.copy()
+    results['adm_cen_long_df'] = long_df
+
+    return results
+
+
+def calculate_dispositions_mkt_adj(
+    mkt_adj_df: pd.DataFrame,
+    rates: Dict[str, float],
+):
+    """Build dispositions dataframe of patients adjusted by rate and market_share."""
+    for key, rate in rates.items():
+        mkt_adj_df["ever_" + key] = (mkt_adj_df.infected +
+                                     mkt_adj_df.recovered) * rate * mkt_adj_df.market_share
+
+    return mkt_adj_df
+
+
+def calculate_admits_mkt_adj(mkt_adj_df: pd.DataFrame, rates):
+    """Build admits dataframe from dispositions."""
+    for key in rates.keys():
+        # Need to convert Series to ndarray else get weird slicing errors
+        # when doing admit[1:] = ever[1:] - ever[:-1]. Strange.
+        ever = np.array(mkt_adj_df["ever_" + key])
+        admit = np.empty_like(ever)
+        admit[0] = np.nan
+        admit[1:] = ever[1:] - ever[:-1]
+        mkt_adj_df["admits_" + key] = admit
+
+    return mkt_adj_df
+
+
+def calculate_census_mkt_adj(
+    mkt_adj_df: pd.DataFrame,
+    lengths_of_stay: Dict[str, int],
+):
+    """Average Length of Stay for each disposition of COVID-19 case (total guesses)"""
+    n_days = mkt_adj_df["day"].shape[0]
+
+    for key, los in lengths_of_stay.items():
+        raw = np.array(mkt_adj_df["admits_" + key])
+        cumsum = np.empty(n_days + los)
+        cumsum[:los+1] = 0.0
+        cumsum[los+1:] = raw[1:].cumsum()
+
+        census = cumsum[los:] - cumsum[:-los]
+        mkt_adj_df["census_" + key] = census
+
+    return mkt_adj_df
 
 
 def main():
     my_args = parse_args()
     my_args_dict = vars(my_args)
 
-    # Update sys.arg so we can call cli.parse_args()
-    sys.argv = [sys.argv[0], '--parameters', my_args_dict['file']]
-
     scenario = my_args.scenario
     output_path = my_args.output_path
 
     # Read chime params from configuration file
-    # a = cli.parse_args()
+    p = create_params_from_file(my_args_dict['parameters'])
 
-    p = Parameters.create(os.environ, sys.argv[1:])
-
-    # p = Parameters(
-    #     current_hospitalized=a.current_hospitalized,
-    #     mitigation_date=a.mitigation_date,
-    #     current_date=a.current_date,
-    #     date_first_hospitalized=a.date_first_hospitalized,
-    #     doubling_time=a.doubling_time,
-    #     infectious_days=a.infectious_days,
-    #     market_share=a.market_share,
-    #     n_days=a.n_days,
-    #     relative_contact_rate=a.relative_contact_rate,
-    #     population=a.population,
-    #
-    #     hospitalized=Disposition(a.hospitalized_rate, a.hospitalized_days),
-    #     icu=Disposition(a.icu_rate, a.icu_days),
-    #     ventilated=Disposition(a.ventilated_rate, a.ventilated_days),
-    # )
     input_check = vars(p)
 
-    if my_args.scenarios is None:
+    if my_args.experiment is None:
         # Just running one scenario
         m, results = sim_chime(scenario, p)
 
@@ -366,21 +531,57 @@ def main():
 
             print("\nIntermediate variables")
             print("{}".format(50 * '-'))
-            print(json.dumps(results['intermediate_variables_dict'], indent=4, sort_keys=False))
+            print(json.dumps(results['important_variables_dict'], indent=4, sort_keys=False))
             print("\n")
 
+        # Check if doing market share adjustments
+        if my_args.market_share is not None:
+
+            mkt_scenario = Path(my_args.market_share).stem
+            # Make sure mkt_scenario != scenario since will be value in wide and long dfs
+            if mkt_scenario == scenario:
+                mkt_scenario += '_mkt'
+            mkt_share_csv = my_args.market_share
+            results_mkt = market_share_adjustment(mkt_share_csv,
+                                                  results, mkt_scenario)
+
+            # Stack wide and long results dataframes?
+            # This seems ill thought out. Let's not allow it for now.
+            if 0:
+                for key in ('wide_df', 'long_df'):
+                    df = results['adm_cen_' + key]
+                    mkt_df = results_mkt['adm_cen_' + key]
+                    df = pd.concat([df, mkt_df])
+                    results['adm_cen_' + key] = df.copy()
+
+            else:
+                write_results(results_mkt, mkt_scenario, output_path)
+
+        # Check if including actual values
+        if my_args.actual is not None:
+            results = include_actual(results, my_args.actual)
+
+        # Write out results (may or may not be stacked)
         write_results(results, scenario, output_path)
+
     else:
         # Running a bunch of scenarios using sim_chimes()
-        scenarios_name = my_args.scenarios
+        experiment = my_args.experiment
         # Run the scenarios (kludged into sim_chimes for now)
-        results_list = sim_chimes(scenarios_name, p)
+        results_list = sim_chimes(experiment, p)
+        # Check if including actual values
+        if my_args.actual is not None:
+            for results in results_list:
+                new_results = include_actual(results, my_args.actual)
+                results.update(new_results)
 
         # Consolidate results over scenarios
-        cons_dfs, params_dict_list = consolidate_scenarios_results(results_list)
+        cons_dfs, params_dict_list = consolidate_scenarios_results(experiment, results_list)
 
         # Write out consolidated csv files
-        write_scenarios_results(cons_dfs, params_dict_list, scenarios_name, output_path)
+        write_experiment_results(cons_dfs, params_dict_list, experiment, output_path)
+
+
 
 
 if __name__ == "__main__":
