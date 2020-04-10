@@ -17,6 +17,47 @@ Where to get it
 * Source code: http://github.com/misken/sim_chime_scenario_runner
 * Documentation: See Jupyter notebooks in docs folder
 
+sim_chime_scenario_runner 2.0.0-chime.1.1.3
+===========================================
+
+Added a bunch of new functionality but still more to do, especially for experiments (batches of scenarios).
+
+Changed the version numbering to specifically indate which major CHIME version this is compatible with
+as I have to adapt to them.
+
+**Release date:** 2020-04-10
+
+**New features**
+
+* Added ability to include actual census, admits and other measures.
+
+    - added function `include_actual(results, actual csv filename)`
+    - actual file should only contain day, date and meltable measures.
+    - the actuals are included in both long and wide dataframes
+
+* Added market share adjustment postprocessor.
+    - takes input csv of market share by date
+
+**Improvements to existing features**
+
+* Added wide and long versions of combined admit and census outputs to facilitate plotting
+* added scenario and result_type (sim or postprocessor) to main result dictionary as well as in the important_variables_dict.
+* Updated sim_chimes() scenario runner demo:
+
+    - still just a hard coded demo
+    - ranges for mit date, eff contact rate, and infectious days
+    - added the wide and long outputs
+    - can also handle actual values as input
+
+
+**API Changes**
+
+* Added `--market-share <market share by date csv>`
+* Added `--actual <actual data values csv>`
+
+**Bug Fixes**
+
+
 sim_chime_scenario_runner 1.1.3
 ===============================
 
