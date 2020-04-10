@@ -23,14 +23,13 @@ sim_chime_scenario_runner 2.0.0-chime.1.1.3
 Added a bunch of new functionality but still more to do, especially for experiments (batches of scenarios).
 
 Changed the version numbering to specifically indate which major CHIME version this is compatible with
-as I have to adapt to them.
+as I have to adapt to their changes.
 
 **Release date:** 2020-04-10
 
 **New features**
 
 * Added ability to include actual census, admits and other measures.
-
     - added function `include_actual(results, actual csv filename)`
     - actual file should only contain day, date and meltable measures.
     - the actuals are included in both long and wide dataframes
@@ -43,7 +42,6 @@ as I have to adapt to them.
 * Added wide and long versions of combined admit and census outputs to facilitate plotting
 * added scenario and result_type (sim or postprocessor) to main result dictionary as well as in the important_variables_dict.
 * Updated sim_chimes() scenario runner demo:
-
     - still just a hard coded demo
     - ranges for mit date, eff contact rate, and infectious days
     - added the wide and long outputs
@@ -74,24 +72,25 @@ Parameters and argument parsing consistent with penn-chime v1.1.3
 * recovered is required but not yet implemented according to -h
 * ALOS parameter names now all consistently plural "-days"
 
-	Example file:
+    Example file:
 
-	    --population 5026226
-	    --market-share 0.32
-	    --current-hospitalized 935
-	    --date-first-hospitalized 2020-02-20
-	    --mitigation-date 2020-03-21
-	    --current-date 2020-04-05
-	    --recovered 0
-	    --relative-contact-rate 0.30
-	    --hospitalized-rate 0.025
-	    --icu-rate 0.0075
-	    --ventilated-rate 0.005
-	    --infectious-days 14
-	    --hospitalized-days 7
-	    --icu-days 9
-	    --ventilated-days 10
-	    --n-days 120
+        --population 5026226
+        --market-share 0.32
+        --current-hospitalized 935
+        --date-first-hospitalized 2020-02-20
+        --mitigation-date 2020-03-21
+        --current-date 2020-04-05
+        --recovered 0
+        --relative-contact-rate 0.30
+        --hospitalized-rate 0.025
+        --icu-rate 0.0075
+        --ventilated-rate 0.005
+        --infectious-days 14
+        --hospitalized-days 7
+        --icu-days 9
+        --ventilated-days 10
+        --n-days 120
+
 
 **Bug Fixes**
 

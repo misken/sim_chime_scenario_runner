@@ -8,7 +8,7 @@ Added a bunch of new functionality but still more to do, especially for experime
 See release notes for details.
 
 Changed the version numbering to specifically indate which major CHIME version this is compatible with
-as I have to adapt to their canges.
+as I have to adapt to their changes.
 
 ### Changes in parameters file (2020-04-08)
 
