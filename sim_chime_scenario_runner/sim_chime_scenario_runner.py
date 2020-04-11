@@ -262,14 +262,14 @@ def sim_chimes(experiment: str, p: Parameters):
         print("Gonna be trouble. Either date_first_hospitalized or doubling_time should be set.")
 
     # Create a range of social distances
-    relative_contact_rates = np.arange(0.05, 0.80, 0.05)
+    relative_contact_rates = np.arange(0.05, 0.85, 0.05)
 
     # Create range of mitigation dates
     dates = pd.date_range('2020-03-21', '2020-03-27').to_pydatetime()
     mitigation_dates =[d.date() for d in dates]
 
     # Create a range of recovery times
-    infectious_days = np.arange(7.00, 14.0, 1.00)
+    infectious_days = np.arange(7.00, 15.0, 1.00)
 
     num_scenarios = len(relative_contact_rates)
 
