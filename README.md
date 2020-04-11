@@ -5,35 +5,9 @@ A simple Python module for working with the penn_chime model from the command li
 ### sim_chime_scenario_runner 2.0.0-chime.1.1.3
 
 Added a bunch of new functionality but still more to do, especially for experiments (batches of scenarios).
-See release notes for details.
+See [release notes](RELEASE.md) for details.
 
-Changed the version numbering to specifically indate which major CHIME version this is compatible with
-as I have to adapt to their canges.
-
-### Changes in parameters file (2020-04-08)
-
-* recovered is required but not yet implemented according to -h
-* ALOS parameter names now all consistently plural "-days"
-
-Example file:
-
-    --population 5026226
-    --market-share 0.32
-    --current-hospitalized 935
-    --date-first-hospitalized 2020-02-20
-    --mitigation-date 2020-03-21
-    --current-date 2020-04-05
-    --recovered 0
-    --relative-contact-rate 0.30
-    --hospitalized-rate 0.025
-    --icu-rate 0.0075
-    --ventilated-rate 0.005
-    --infectious-days 14
-    --hospitalized-days 7
-    --icu-days 9
-    --ventilated-days 10
-    --n-days 120
-
+### About using
 
 * A Jupyter notebook demo showing its use: [using_sim_chime_scenario_runner.ipynb](https://github.com/misken/sim_chime_scenario_runner/blob/master/demos/using_sim_chime_scenario_runner.ipynb)
 

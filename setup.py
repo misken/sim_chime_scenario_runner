@@ -1,6 +1,6 @@
 """Setup file for chime scenario runner
 """
-__version__ = "2.0.0-chime.1.1.3"
+__version__ = "2.0.1-chime.1.1.3"
 __author__ = "misken"  
 
 from os import path
