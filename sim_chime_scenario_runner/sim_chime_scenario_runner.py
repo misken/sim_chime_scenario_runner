@@ -558,7 +558,7 @@ def main():
         if my_args.actual is not None:
             results = include_actual(results, my_args.actual)
 
-        # Write out results (may or may not be stacked)
+        # Write out results
         write_results(results, scenario, output_path)
 
     else:
