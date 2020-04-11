@@ -53,9 +53,6 @@ def parse_args():
         "--market-share", type=str, default=None, help="csv file containing date and market share (<=1.0)",
     )
     parser.add_argument(
-        "--stack", action='store_true', help="Include to stack market share and scenario wide/long dfs",
-    )
-    parser.add_argument(
         "--actual", type=str, default=None,
         help="csv file containing day, date and actual measures (e.g. admits and census",
     )
