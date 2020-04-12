@@ -215,6 +215,8 @@ def join_and_melt(adm_df, cen_def, scenario):
     wide_df = pd.merge(adm_df, cen_def, left_index=True, right_index=True,
                        suffixes=('_adm', '_cen'), validate="1:1")
 
+    wide_df.fillna(0., inplace=True)
+
     wide_df['scenario'] = scenario
 
     pd.testing.assert_series_equal(wide_df['day_adm'],
