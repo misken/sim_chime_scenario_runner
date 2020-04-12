@@ -266,7 +266,7 @@ def sim_chimes(experiment: str, p: Parameters):
     mitigation_dates =[d.date() for d in dates]
 
     # Create a range of recovery times
-    infectious_days = np.arange(7.00, 15.0, 1.00)
+    infectious_days = np.arange(8.00, 13.0, 1.00)
 
     num_scenarios = len(relative_contact_rates)
 
@@ -440,7 +440,10 @@ def market_share_adjustment(market_share_csv, base_results, mkt_scenario):
 
 
 def include_actual(results, actual_csv):
+    current_date = pd.Timestamp(results['input_params_dict']['current_date'])
     actual_df = pd.read_csv(actual_csv, parse_dates=['date'])
+    actual_df.iloc[(actual_df['date'] < current_date).values, :] = \
+        actual_df.iloc[(actual_df['date'] < current_date).values, :].fillna(0)
     wide_df = results['adm_cen_wide_df']
     wide_w_act_df = pd.merge(wide_df, actual_df, left_on=['date'], right_on=['date'], how='left')
     wide_w_act_df.rename({'day_x': 'day'}, axis='columns', inplace=True)
