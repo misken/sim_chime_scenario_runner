@@ -24,17 +24,12 @@ from argparse import (
 from datetime import datetime
 from typing import Dict, List
 
-from pandas import DataFrame
 import numpy as np
 import pandas as pd
 
-from penn_chime.constants import CHANGE_DATE
-from penn_chime.parameters import Parameters, Disposition
-from penn_chime.models import SimSirModel as Model
-import penn_chime.models as models
-import penn_chime.cli as cli
+from penn_chime.model.parameters import Parameters, Disposition
+from penn_chime.model.sir import Sir as Model
 
-import sys
 import json
 
 
