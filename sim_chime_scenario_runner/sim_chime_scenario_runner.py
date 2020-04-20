@@ -22,15 +22,28 @@ from argparse import (
     ArgumentParser,
 )
 from datetime import datetime
-from typing import Dict, List
+from typing import Dict, List, Sequence, Tuple, Optional
+from sys import stdout
 
 import numpy as np
 import pandas as pd
+from scipy.optimize import curve_fit
 
 from penn_chime.model.parameters import Parameters, Disposition
-from penn_chime.model.sir import Sir as Model
+from penn_chime.model.sir import Sir
+from sirplus import SirPlus
 
 import json
+
+
+from logging import INFO, basicConfig, getLogger
+
+basicConfig(
+    level=INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    stream=stdout,
+)
+logger = getLogger(__name__)
 
 
 def parse_args():
@@ -46,6 +59,12 @@ def parse_args():
     )
     parser.add_argument(
         "--market-share", type=str, default=None, help="csv file containing date and market share (<=1.0)",
+    )
+    parser.add_argument(
+        "--dynamic-rcr", type=str, default=None, help="csv file containing doubling times and number of days to use",
+    )
+    parser.add_argument(
+        "--admits", type=str, default=None, help="csv file containing admits by date (prior to first mitigation date)",
     )
     parser.add_argument(
         "--actual", type=str, default=None,
@@ -76,20 +95,33 @@ def create_params_from_file(file):
     return p
 
 
-
-def sim_chime(scenario: str, p: Parameters):
+def sim_chime(scenario: str, p: Parameters,
+              intrinsic_growth_rate: float=None,
+              initial_doubling_time: float=None,
+              admits_df: Optional=None,
+              rcr_policies: Sequence[Tuple[float, int]]=None):
     """
     Run one chime simulation.
 
     :param scenario:
     :param p:
+    :param initial_doubling_time:
+    :param intrinsic_growth_rate:
+    :param admits_df:
+    :param rcr_policies:
     :return: Tuple (model, results dictionary)
     """
 
     input_params_dict = vars(p)
 
     # Run the model
-    m = Model(p)
+    if intrinsic_growth_rate is None and initial_doubling_time is None\
+            and rcr_policies is None:
+        # Just call penn_chime version of Sir
+        m = Sir(p)
+    else:
+        m = SirPlus(p, intrinsic_growth_rate, initial_doubling_time,
+                    admits_df, rcr_policies)
 
     # Gather results
     results = gather_sim_results(m, scenario, input_params_dict)
@@ -459,6 +491,37 @@ def include_actual(results, actual_csv):
     return results
 
 
+def read_dynamic_rcr(dynamic_rcr_csv):
+    dynamic_rcr_df = pd.read_csv(dynamic_rcr_csv, parse_dates=['date'])
+    dynamic_rcr = list(dynamic_rcr_df.itertuples(index=False))
+    return dynamic_rcr
+
+
+def read_admits(admits_csv):
+    admits_df = pd.read_csv(admits_csv, parse_dates=['date'])
+    return admits_df
+
+
+def estimate_g_doubling_time(admits_df):
+    """
+    Fit exponential growth model to early admits (before mitigation date)
+    :param admits_df:
+    :return:
+    """
+
+    def exp_growth_func(x, a, b, c):
+        return a * np.exp(b * x) + c
+
+    x = np.array(admits_df.index.values)
+    y = np.array(admits_df.iloc[:, 1])
+    popt, pcov = curve_fit(exp_growth_func, x, y, p0=(1, 0.10, 0))
+    intrinsic_growth_rate_adm = popt[1]
+    implied_doubling_time = np.log(2.0) / intrinsic_growth_rate_adm
+    logger.info('Estimated intrinsic_growth_rate_adm: %s', intrinsic_growth_rate_adm)
+    logger.info('Estimated implied doubling_time: %s', implied_doubling_time)
+    return intrinsic_growth_rate_adm, implied_doubling_time
+
+
 def calculate_dispositions_mkt_adj(
     mkt_adj_df: pd.DataFrame,
     rates: Dict[str, float],
@@ -504,6 +567,12 @@ def calculate_census_mkt_adj(
     return mkt_adj_df
 
 
+def get_date_first_hospitalized(admits_df):
+
+    first_admit = admits_df[admits_df.iloc[:, 1] > 0].iloc[0, 0]
+    return first_admit
+
+
 def main():
     my_args = parse_args()
     my_args_dict = vars(my_args)
@@ -518,7 +587,43 @@ def main():
 
     if my_args.experiment is None:
         # Just running one scenario
-        m, results = sim_chime(scenario, p)
+
+        # Check if using admissions by date file (prior to distancing)
+        # to estimate initial doubling time and hospitalization rate (after sir)
+
+        intrinsic_growth_rate = initial_doubling_time = None
+        admits_df = dynamic_rcr = None
+        if my_args.admits is not None:
+            admits_csv = my_args.admits
+            admits_df = read_admits(admits_csv)
+
+            date_first_hospitalized = get_date_first_hospitalized(admits_df)
+
+            # Not forcing first date in admit file to be same as
+            # date_first_hospitalized but just noting if they are
+            # different
+            if p.date_first_hospitalized != date_first_hospitalized:
+                logger.info("WARNING: date_first_hospitalized = %s, first date in admits file = %s",
+                            p.date_first_hospitalized,
+                            date_first_hospitalized
+                )
+
+            # Estimate early growth rate by using admits before mitigation date
+            admits_before_mit_date_df = admits_df.loc[admits_df['date'] < pd.Timestamp(p.mitigation_date)]
+            intrinsic_growth_rate, initial_doubling_time = \
+                estimate_g_doubling_time(admits_before_mit_date_df)
+
+        # Check if using dynamic rcr file
+        if my_args.dynamic_rcr is not None:
+            dynamic_rcr_csv = my_args.dynamic_dt
+            dynamic_rcr = read_dynamic_rcr(dynamic_rcr_csv)
+
+        # Call the sim_chime wrapper function
+        m, results = sim_chime(scenario, p,
+                               intrinsic_growth_rate=intrinsic_growth_rate,
+                               initial_doubling_time=initial_doubling_time,
+                               admits_df=admits_df,
+                               dynamic_rcr=dynamic_rcr)
 
         if not my_args.quiet:
             print("Scenario: {}\n".format(results['scenario']))
