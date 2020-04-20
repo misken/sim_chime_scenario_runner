@@ -32,6 +32,7 @@ from scipy.optimize import curve_fit
 from penn_chime.model.parameters import Parameters, Disposition
 from penn_chime.model.sir import Sir
 from sirplus import SirPlus
+from sirplus import get_doubling_time
 
 import json
 
@@ -99,7 +100,7 @@ def sim_chime(scenario: str, p: Parameters,
               intrinsic_growth_rate: float=None,
               initial_doubling_time: float=None,
               admits_df: Optional=None,
-              rcr_policies: Sequence[Tuple[float, int]]=None):
+              rcr_policies_df: Optional=None):
     """
     Run one chime simulation.
 
@@ -112,19 +113,21 @@ def sim_chime(scenario: str, p: Parameters,
     :return: Tuple (model, results dictionary)
     """
 
-    input_params_dict = vars(p)
 
     # Run the model
-    if intrinsic_growth_rate is None and initial_doubling_time is None\
-            and rcr_policies is None:
+    if rcr_policies_df is None:
+        is_dynamic_rcr = False
         # Just call penn_chime version of Sir
         m = Sir(p)
+
     else:
+        is_dynamic_rcr = True
         m = SirPlus(p, intrinsic_growth_rate, initial_doubling_time,
-                    admits_df, rcr_policies)
+                    admits_df, rcr_policies_df)
 
     # Gather results
-    results = gather_sim_results(m, scenario, input_params_dict)
+    input_params_dict = vars(p)
+    results = gather_sim_results(m, scenario, input_params_dict, is_dynamic_rcr)
     return m, results
 
 
@@ -147,6 +150,10 @@ def write_results(results, scenario, path):
         (results["adm_cen_long_df"], "adm_cen_long"),
     ):
         df.to_csv(path + scenario + '_' + name + ".csv", index=True)
+
+    if 'sim_sir_enhanced_df' in results.keys():
+        results['sim_sir_enhanced_df'].to_csv(path + scenario + '_sim_sir_enhanced_df' + ".csv", index=True)
+
 
     # Variable dictionaries
     with open(path + scenario + "_inputs.json", "w") as f:
@@ -182,7 +189,7 @@ def write_experiment_results(cons_dfs, param_dict_list, scenarios, path):
         json.dump(param_dict_list, f, default=str)
 
 
-def gather_sim_results(m, scenario, input_params_dict):
+def gather_sim_results(m, scenario, input_params_dict, is_dynamic_rcr=False):
     """
 
     :param m:
@@ -193,24 +200,38 @@ def gather_sim_results(m, scenario, input_params_dict):
 
     # Get key input/output variables
     intrinsic_growth_rate = m.intrinsic_growth_rate
-    gamma = m.gamma     # Recovery rate
-    beta = m.beta       # Contact rate
-
-    # r_t is r_0 after distancing
-    r_t = m.r_t
+    beta = m.beta
     r_naught = m.r_naught
-    doubling_time_t = m.doubling_time_t
+    gamma = m.gamma     # Recovery rate
 
-    intermediate_variables = OrderedDict({
-        'result_type': 'simsir',
-        'scenario': scenario,
-        'intrinsic_growth_rate': intrinsic_growth_rate,
-        'gamma': gamma,
-        'beta': beta,
-        'r_naught': r_naught,
-        'r_t': r_t,
-        'doubling_time_t': doubling_time_t,
-    })
+    if not is_dynamic_rcr:
+        # r_t is r_0 after distancing
+        r_t = m.r_t
+
+        doubling_time_t = m.doubling_time_t
+
+        intermediate_variables = OrderedDict({
+            'result_type': 'simsir',
+            'scenario': scenario,
+            'intrinsic_growth_rate': intrinsic_growth_rate,
+            'doubling_time': input_params_dict['doubling_time'],
+            'gamma': gamma,
+            'beta': beta,
+            'r_naught': r_naught,
+            'r_t': r_t,
+            'doubling_time_t': doubling_time_t,
+        })
+    else:
+        initial_doubling_time = m.initial_doubling_time
+        intermediate_variables = OrderedDict({
+            'result_type': 'simsir',
+            'scenario': scenario,
+            'intrinsic_growth_rate': intrinsic_growth_rate,
+            'initial_doubling_time': initial_doubling_time,
+            'r_naught': r_naught,
+            'gamma': gamma,
+        })
+
 
     wide_df, long_df = join_and_melt(m.admits_df, m.census_df, scenario)
 
@@ -227,6 +248,7 @@ def gather_sim_results(m, scenario, input_params_dict):
         'adm_cen_long_df': long_df
     }
     return results
+
 
 def join_and_melt(adm_df, cen_def, scenario):
     """
@@ -262,6 +284,18 @@ def join_and_melt(adm_df, cen_def, scenario):
 
     return wide_df, long_df
 
+def enhance_sim_sir_w_date(m, results):
+
+    sim_sir_enhanced_df = results['sim_sir_w_date_df'].copy()
+
+    sim_sir_enhanced_df['ever_infected'] = sim_sir_enhanced_df['infected'] +\
+        sim_sir_enhanced_df['recovered']
+
+    sim_sir_enhanced_df['ever_growth_rate'] = sim_sir_enhanced_df['ever_infected'].pct_change(1)
+    sim_sir_enhanced_df['beta'] = (sim_sir_enhanced_df['ever_growth_rate'] + m.gamma) / sim_sir_enhanced_df['susceptible']
+    sim_sir_enhanced_df['doubling_time'] = sim_sir_enhanced_df['ever_growth_rate'].map(lambda x: get_doubling_time(x))
+
+    return sim_sir_enhanced_df
 
 def sim_chimes(experiment: str, p: Parameters):
     """
@@ -493,8 +527,8 @@ def include_actual(results, actual_csv):
 
 def read_dynamic_rcr(dynamic_rcr_csv):
     dynamic_rcr_df = pd.read_csv(dynamic_rcr_csv, parse_dates=['date'])
-    dynamic_rcr = list(dynamic_rcr_df.itertuples(index=False))
-    return dynamic_rcr
+    #dynamic_rcr = list(dynamic_rcr_df.itertuples(index=False))
+    return dynamic_rcr_df
 
 
 def read_admits(admits_csv):
@@ -509,13 +543,13 @@ def estimate_g_doubling_time(admits_df):
     :return:
     """
 
-    def exp_growth_func(x, a, b, c):
-        return a * np.exp(b * x) + c
+    def exp_growth_func(x, b):
+        return np.exp(b * x)
 
     x = np.array(admits_df.index.values)
     y = np.array(admits_df.iloc[:, 1])
-    popt, pcov = curve_fit(exp_growth_func, x, y, p0=(1, 0.10, 0))
-    intrinsic_growth_rate_adm = popt[1]
+    popt, pcov = curve_fit(exp_growth_func, x, y, p0=(0.10))
+    intrinsic_growth_rate_adm = popt[0]
     implied_doubling_time = np.log(2.0) / intrinsic_growth_rate_adm
     logger.info('Estimated intrinsic_growth_rate_adm: %s', intrinsic_growth_rate_adm)
     logger.info('Estimated implied doubling_time: %s', implied_doubling_time)
@@ -615,15 +649,21 @@ def main():
 
         # Check if using dynamic rcr file
         if my_args.dynamic_rcr is not None:
-            dynamic_rcr_csv = my_args.dynamic_dt
-            dynamic_rcr = read_dynamic_rcr(dynamic_rcr_csv)
+            dynamic_rcr_csv = my_args.dynamic_rcr
+            dynamic_rcr_df = read_dynamic_rcr(dynamic_rcr_csv)
+        else:
+            dynamic_rcr_df=None
 
         # Call the sim_chime wrapper function
         m, results = sim_chime(scenario, p,
                                intrinsic_growth_rate=intrinsic_growth_rate,
                                initial_doubling_time=initial_doubling_time,
                                admits_df=admits_df,
-                               dynamic_rcr=dynamic_rcr)
+                               rcr_policies_df=dynamic_rcr_df)
+
+        if my_args.dynamic_rcr is not None:
+            sim_sir_enhanced_df = enhance_sim_sir_w_date(m, results)
+            results['sim_sir_enhanced_df'] = sim_sir_enhanced_df
 
         if not my_args.quiet:
             print("Scenario: {}\n".format(results['scenario']))
