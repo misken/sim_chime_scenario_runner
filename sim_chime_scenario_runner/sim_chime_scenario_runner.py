@@ -8,8 +8,11 @@ We adapted the CLI application in the CHIME project (https://github.com/CodeForP
 - added ability to import this and call sim_chime() function from external apps so that we can run tons of scenarios over ranges of input parameters
 - output is a dictionary of the standard CHIME dataframes as well as dictionaries
 containing parameter and variable values.
+- added output dataframes and csvs in wide and long format with admit and census data to facilitate analysis
 - also writes out csvs
-- it's in very early stages.
+- added ability to include actual census and admit data to facilitate comparitive plotting and analysis
+- added ability to specify market share by date to reflect dynamics of regional patient flow
+- added ability to specify relative-contact-rate by date to model ramp-up of social distancing and future social distancing policies.
 
 """
 
@@ -28,14 +31,13 @@ from sys import stdout
 import numpy as np
 import pandas as pd
 from scipy.optimize import curve_fit
+import json
 
 from penn_chime.model.parameters import Parameters, Disposition
 from penn_chime.model.sir import Sir
+
 from sirplus import SirPlus
 from sirplus import get_doubling_time
-
-import json
-
 
 from logging import INFO, basicConfig, getLogger
 
@@ -49,7 +51,7 @@ logger = getLogger(__name__)
 
 def parse_args():
     """Parse args."""
-    parser = ArgumentParser(description="SEMI-CHIME")
+    parser = ArgumentParser(description="sim chime scenario runner")
     parser.add_argument("parameters", type=str, help="CHIME config (cfg) file")
     parser.add_argument(
         "--scenario", type=str, default=datetime.now().strftime("%Y.%m.%d.%H.%M."),
@@ -62,7 +64,7 @@ def parse_args():
         "--market-share", type=str, default=None, help="csv file containing date and market share (<=1.0)",
     )
     parser.add_argument(
-        "--dynamic-rcr", type=str, default=None, help="csv file containing doubling times and number of days to use",
+        "--dynamic-rcr", type=str, default=None, help="csv file containing dates and relative contact rates",
     )
     parser.add_argument(
         "--admits", type=str, default=None, help="csv file containing admits by date (prior to first mitigation date)",
@@ -71,7 +73,6 @@ def parse_args():
         "--actual", type=str, default=None,
         help="csv file containing day, date and actual measures (e.g. admits and census",
     )
-
     parser.add_argument(
         "--experiment", type=str,
         help="Undocumented feature: if not None, sim_chimes() function is called and a whole bunch of scenarios are run."
@@ -82,12 +83,12 @@ def parse_args():
     return parser.parse_args()
 
 
-def create_params_from_file(file):
+def create_params_from_file(file: str):
     """
-    Create CHIME Parameters object from input config file
+    Create CHIME Parameters object from input config file.
 
     :param file:
-    :return:
+    :return: Parameters object
     """
 
     args = ['--parameters', file]
@@ -102,17 +103,16 @@ def sim_chime(scenario: str, p: Parameters,
               admits_df: Optional=None,
               rcr_policies_df: Optional=None):
     """
-    Run one chime simulation.
+    Run one CHIME simulation
 
-    :param scenario:
-    :param p:
-    :param initial_doubling_time:
-    :param intrinsic_growth_rate:
-    :param admits_df:
-    :param rcr_policies:
-    :return: Tuple (model, results dictionary)
+    :param scenario: identifier for scenario
+    :param p: CHIME parameters
+    :param intrinsic_growth_rate: Can optionally specify to override CHIME fitting/estimation
+    :param initial_doubling_time: Can optionally specify to override CHIME fitting/estimation
+    :param admits_df: Experimental - not currently using
+    :param rcr_policies_df: Dataframe of dates and rcr values
+    :return:
     """
-
 
     # Run the model
     if rcr_policies_df is None:
@@ -121,6 +121,7 @@ def sim_chime(scenario: str, p: Parameters,
         m = Sir(p)
 
     else:
+        # Using dynamic rcrs, need to call customized version of Sir
         is_dynamic_rcr = True
         m = SirPlus(p, intrinsic_growth_rate, initial_doubling_time,
                     admits_df, rcr_policies_df)
@@ -128,16 +129,20 @@ def sim_chime(scenario: str, p: Parameters,
     # Gather results
     input_params_dict = vars(p)
     results = gather_sim_results(m, scenario, input_params_dict, is_dynamic_rcr)
+
+    # Return model object and results
     return m, results
 
 
 def write_results(results, scenario, path):
     """
+    Write csv (for dataframes) and json (for dictionaries) output files
 
-    :param results:
-    :param scenario:
-    :param path:
-    :return:
+    :param results: Results dictionary
+    :param scenario: Scenario id to prepend to output filenames
+    :param path: Location for output filenames
+
+    :return: Nothing
     """
 
     # Results dataframes
@@ -154,48 +159,24 @@ def write_results(results, scenario, path):
     if 'sim_sir_enhanced_df' in results.keys():
         results['sim_sir_enhanced_df'].to_csv(path + scenario + '_sim_sir_enhanced_df' + ".csv", index=True)
 
-
     # Variable dictionaries
     with open(path + scenario + "_inputs.json", "w") as f:
-        # # Convert date to string to make json happy
-        # # “%Y-%m-%d”
-        # results['input_params_dict']['date_first_hospitalized'] = results['input_params_dict'][
-        #     'date_first_hospitalized'].strftime("%Y-%m-%d")
-
         json.dump(results['input_params_dict'], f, default=str)
 
     with open(path + scenario + "_key_vars.json", "w") as f:
         json.dump(results['important_variables_dict'], f)
 
 
-def write_experiment_results(cons_dfs, param_dict_list, scenarios, path):
-    """
-
-    :param admits_df:
-    :param census_df:
-    :param param_vars_df:
-    :param scenarios:
-    :param path:
-    :return:
-    """
-
-    # Results dataframes
-    for df_name, df in cons_dfs.items():
-        df.to_csv(path + scenarios + '_' + df_name + ".csv", index=True)
-
-    # Input dictionaries
-    # Variable dictionaries
-    with open(path + scenarios + "_inputs.json", "w") as f:
-        json.dump(param_dict_list, f, default=str)
-
-
 def gather_sim_results(m, scenario, input_params_dict, is_dynamic_rcr=False):
     """
+    Gather dataframes and dictionaries into master results dictionary.
 
     :param m:
     :param scenario:
     :param input_params_dict:
-    :return:
+    :param is_dynamic_rcr:
+
+    :return: Dictionary containing dataframes and other dictionaries with results
     """
 
     # Get key input/output variables
@@ -232,7 +213,7 @@ def gather_sim_results(m, scenario, input_params_dict, is_dynamic_rcr=False):
             'gamma': gamma,
         })
 
-
+    # Create wide and long versions of combined admit and census projection files
     wide_df, long_df = join_and_melt(m.admits_df, m.census_df, scenario)
 
     results = {
@@ -253,7 +234,7 @@ def gather_sim_results(m, scenario, input_params_dict, is_dynamic_rcr=False):
 def join_and_melt(adm_df, cen_def, scenario):
     """
     Create wide and long DataFrames with combined admit and census data suitable for
-    plotting with Seaborn or ggplot2 (in R).
+    plotting.
 
     :param adm_df:
     :param cen_def:
@@ -284,7 +265,9 @@ def join_and_melt(adm_df, cen_def, scenario):
 
     return wide_df, long_df
 
+
 def enhance_sim_sir_w_date(m, results):
+    """ Add growth rate, beta, doubling time and basic reproductive number to sir outputs."""
 
     sim_sir_enhanced_df = results['sim_sir_w_date_df'].copy()
 
@@ -294,8 +277,227 @@ def enhance_sim_sir_w_date(m, results):
     sim_sir_enhanced_df['ever_growth_rate'] = sim_sir_enhanced_df['ever_infected'].pct_change(1)
     sim_sir_enhanced_df['beta'] = (sim_sir_enhanced_df['ever_growth_rate'] + m.gamma) / sim_sir_enhanced_df['susceptible']
     sim_sir_enhanced_df['doubling_time'] = sim_sir_enhanced_df['ever_growth_rate'].map(lambda x: get_doubling_time(x))
+    sim_sir_enhanced_df['basic reproductive number'] = sim_sir_enhanced_df['susceptible'] * sim_sir_enhanced_df['beta'] / m.gamma
 
     return sim_sir_enhanced_df
+
+
+def market_share_adjustment(market_share_csv, base_results, mkt_scenario):
+    """
+    Post-processor to use market share by date to get to resource projections.
+
+    :param market_share_csv:
+    :param base_results:
+    :param mkt_scenario:
+    :return: results dictionary
+    """
+
+    # Get the hosp, icu and vent rates from the inputs
+    rates = {
+        key: d.rate
+        for key, d in base_results['input_params_dict']['dispositions'].items()
+    }
+
+    days = {
+        key: d.days
+        for key, d in base_results['input_params_dict']['dispositions'].items()
+    }
+
+    # Read market share file
+    market_share_df = pd.read_csv(market_share_csv, parse_dates=['date'])
+
+    sim_sir_w_date_df = base_results['sim_sir_w_date_df'].copy()
+    all_w_mkt_df = pd.merge(sim_sir_w_date_df, market_share_df, on=['date'], how='left')
+
+    all_w_mkt_df = calculate_dispositions_mkt_adj(all_w_mkt_df, rates)
+    all_w_mkt_df = calculate_admits_mkt_adj(all_w_mkt_df, rates)
+    all_w_mkt_df = calculate_census_mkt_adj(all_w_mkt_df, days)
+
+    dispositions_mkt_df = pd.DataFrame(data={
+        'day': all_w_mkt_df['day'],
+        'date': all_w_mkt_df['date'],
+        'ever_hospitalized': all_w_mkt_df['ever_hospitalized'],
+        'ever_icu': all_w_mkt_df['ever_icu'],
+        'ever_ventilated': all_w_mkt_df['ever_ventilated'],
+    })
+    admits_mkt_df = pd.DataFrame(data={
+        'day': all_w_mkt_df['day'],
+        'date': all_w_mkt_df['date'],
+        'admits_hospitalized': all_w_mkt_df['admits_hospitalized'],
+        'admits_icu': all_w_mkt_df['admits_icu'],
+        'admits_ventilated': all_w_mkt_df['admits_ventilated'],
+    })
+    census_mkt_df = pd.DataFrame(data={
+        'day': all_w_mkt_df['day'],
+        'date': all_w_mkt_df['date'],
+        'census_hospitalized': all_w_mkt_df['census_hospitalized'],
+        'census_icu': all_w_mkt_df['census_icu'],
+        'census_ventilated': all_w_mkt_df['census_ventilated'],
+    })
+
+    wide_df, long_df = join_and_melt(admits_mkt_df, census_mkt_df, mkt_scenario)
+
+    base_results['important_variables_dict']['result_type'] = 'postprocessor'
+
+    results_mkt = {
+        'result_type': 'postprocessor',
+        'scenario': mkt_scenario,
+        'input_params_dict': base_results['input_params_dict'],
+        'important_variables_dict': base_results['important_variables_dict'],
+        'sim_sir_w_date_df': base_results['sim_sir_w_date_df'],
+        'dispositions_df': dispositions_mkt_df,
+        'admits_df': admits_mkt_df,
+        'census_df': census_mkt_df,
+        'adm_cen_wide_df': wide_df,
+        'adm_cen_long_df': long_df
+    }
+
+    return results_mkt
+
+
+def include_actual(results, actual_csv):
+    """
+    Include actual admits and census data in some of the output dataframes.
+
+    Actual data only gets added to the wide and long combined admit/census dataframes and not
+    to the standard CHIME output dataframes. The csv file containing the actual data should
+    only contain the day (int), the date and then measure columns such as number of admits and actual census.
+    The date is used as the joining field with the results dataframes.
+
+    :param results:
+    :param actual_csv:
+    :return:
+    """
+
+    current_date = pd.Timestamp(results['input_params_dict']['current_date'])
+    actual_df = pd.read_csv(actual_csv, parse_dates=['date'])
+    actual_df.iloc[(actual_df['date'] < current_date).values, :] = \
+        actual_df.iloc[(actual_df['date'] < current_date).values, :].fillna(0)
+    wide_df = results['adm_cen_wide_df']
+    wide_w_act_df = pd.merge(wide_df, actual_df, left_on=['date'], right_on=['date'], how='left')
+    wide_w_act_df.rename({'day_x': 'day'}, axis='columns', inplace=True)
+    wide_w_act_df.drop(['day_y'], axis='columns', inplace=True)
+
+    # Now recreate long version. It's assumed that the only columns in actual are
+    # day, date, and meltable measures.
+
+    long_df = pd.melt(wide_w_act_df,
+                      id_vars=['scenario', 'day', 'date'],
+                      var_name='dispo_measure', value_name='cases')
+
+    results['adm_cen_wide_df'] = wide_w_act_df.copy()
+    results['adm_cen_long_df'] = long_df
+
+    return results
+
+
+def read_dynamic_rcr(dynamic_rcr_csv):
+    """
+    Read csv file containing dates and relative contact rate values.
+
+    The example below shows each date with its own contact rate but will
+    also work if you just include the dates and rcr values for when they
+    change.
+
+    Example:
+
+        date,relative_contact_rate
+        2020-02-01,0.00
+        2020-02-02,0.00
+        2020-02-03,0.00
+        ...
+        2020-03-19,0.00
+        2020-03-20,0.00
+        2020-03-21,0.25
+        2020-03-22,0.35
+        2020-03-23,0.35
+        2020-03-24,0.45
+        2020-03-25,0.45
+        ...
+    """
+    dynamic_rcr_df = pd.read_csv(dynamic_rcr_csv, parse_dates=['date'])
+    return dynamic_rcr_df
+
+
+def read_admits(admits_csv):
+    """Experimenting with inputting multiple days of admit data to estimate early growth rate."""
+    admits_df = pd.read_csv(admits_csv, parse_dates=['date'])
+    return admits_df
+
+
+def estimate_g_doubling_time(admits_df):
+    """
+    Fit exponential growth model to early admits (before mitigation date).
+
+    Experimenting with inputting multiple days of admit data to estimate early growth rate.
+
+    :param admits_df:
+    :return:
+    """
+
+    def exp_growth_func(x, b):
+        return np.exp(b * x)
+
+    x = np.array(admits_df.index.values)
+    y = np.array(admits_df.iloc[:, 1])
+    popt, pcov = curve_fit(exp_growth_func, x, y, p0=(0.10))
+    intrinsic_growth_rate_adm = popt[0]
+    implied_doubling_time = np.log(2.0) / intrinsic_growth_rate_adm
+    logger.info('Estimated intrinsic_growth_rate_adm: %s', intrinsic_growth_rate_adm)
+    logger.info('Estimated implied doubling_time: %s', implied_doubling_time)
+    return intrinsic_growth_rate_adm, implied_doubling_time
+
+
+def get_date_first_hospitalized(admits_df):
+    """Experimenting with inputting multiple days of admit data to estimate early growth rate."""
+    first_admit = admits_df[admits_df.iloc[:, 1] > 0].iloc[0, 0]
+    return first_admit
+
+
+def calculate_dispositions_mkt_adj(
+    mkt_adj_df: pd.DataFrame,
+    rates: Dict[str, float],
+):
+    """Build dispositions dataframe of patients adjusted by rate and market_share."""
+    for key, rate in rates.items():
+        mkt_adj_df["ever_" + key] = (mkt_adj_df.infected +
+                                     mkt_adj_df.recovered) * rate * mkt_adj_df.market_share
+
+    return mkt_adj_df
+
+
+def calculate_admits_mkt_adj(mkt_adj_df: pd.DataFrame, rates):
+    """Build admits dataframe from dispositions."""
+    for key in rates.keys():
+        # Need to convert Series to ndarray else get weird slicing errors
+        # when doing admit[1:] = ever[1:] - ever[:-1]. Strange.
+        ever = np.array(mkt_adj_df["ever_" + key])
+        admit = np.empty_like(ever)
+        admit[0] = np.nan
+        admit[1:] = ever[1:] - ever[:-1]
+        mkt_adj_df["admits_" + key] = admit
+
+    return mkt_adj_df
+
+
+def calculate_census_mkt_adj(
+    mkt_adj_df: pd.DataFrame,
+    lengths_of_stay: Dict[str, int],
+):
+    """Average Length of Stay for each disposition of COVID-19 case (total guesses)"""
+    n_days = mkt_adj_df["day"].shape[0]
+
+    for key, los in lengths_of_stay.items():
+        raw = np.array(mkt_adj_df["admits_" + key])
+        cumsum = np.empty(n_days + los)
+        cumsum[:los+1] = 0.0
+        cumsum[los+1:] = raw[1:].cumsum()
+
+        census = cumsum[los:] - cumsum[:-los]
+        mkt_adj_df["census_" + key] = census
+
+    return mkt_adj_df
+
 
 def sim_chimes(experiment: str, p: Parameters):
     """
@@ -370,7 +572,30 @@ def sim_chimes(experiment: str, p: Parameters):
     return results_list
 
 
+def write_experiment_results(cons_dfs, param_dict_list, scenarios, path):
+    """
+    Used by the experimental sim_chimes (note plural) routine for running sim_chime over ranges of inputs.
+
+    :param admits_df:
+    :param census_df:
+    :param param_vars_df:
+    :param scenarios:
+    :param path:
+    :return:
+    """
+
+    # Results dataframes
+    for df_name, df in cons_dfs.items():
+        df.to_csv(path + scenarios + '_' + df_name + ".csv", index=True)
+
+    # Input dictionaries
+    # Variable dictionaries
+    with open(path + scenarios + "_inputs.json", "w") as f:
+        json.dump(param_dict_list, f, default=str)
+
+
 def consolidate_scenarios_results(experiment: str, results_list: List):
+    """Used by the experimental sim_chimes (note plural) routine for running sim_chime over ranges of inputs."""
 
     admits_df_list = []
     census_df_list = []
@@ -430,183 +655,6 @@ def consolidate_scenarios_results(experiment: str, results_list: List):
     return cons_dfs, params_dict_list
 
 
-def market_share_adjustment(market_share_csv, base_results, mkt_scenario):
-    """
-
-    :param market_share_csv:
-    :param base_results:
-    :param mkt_scenario:
-    :return: results dictionary
-    """
-
-    # Get the hosp, icu and vent rates from the inputs
-    rates = {
-        key: d.rate
-        for key, d in base_results['input_params_dict']['dispositions'].items()
-    }
-
-    days = {
-        key: d.days
-        for key, d in base_results['input_params_dict']['dispositions'].items()
-    }
-
-    # Read market share file
-    market_share_df = pd.read_csv(market_share_csv, parse_dates=['date'])
-
-    sim_sir_w_date_df = base_results['sim_sir_w_date_df'].copy()
-    all_w_mkt_df = pd.merge(sim_sir_w_date_df, market_share_df, on=['date'], how='left')
-
-    all_w_mkt_df = calculate_dispositions_mkt_adj(all_w_mkt_df, rates)
-    all_w_mkt_df = calculate_admits_mkt_adj(all_w_mkt_df, rates)
-    all_w_mkt_df = calculate_census_mkt_adj(all_w_mkt_df, days)
-
-    dispositions_mkt_df = pd.DataFrame(data={
-        'day': all_w_mkt_df['day'],
-        'date': all_w_mkt_df['date'],
-        'ever_hospitalized': all_w_mkt_df['ever_hospitalized'],
-        'ever_icu': all_w_mkt_df['ever_icu'],
-        'ever_ventilated': all_w_mkt_df['ever_ventilated'],
-    })
-    admits_mkt_df = pd.DataFrame(data={
-        'day': all_w_mkt_df['day'],
-        'date': all_w_mkt_df['date'],
-        'admits_hospitalized': all_w_mkt_df['admits_hospitalized'],
-        'admits_icu': all_w_mkt_df['admits_icu'],
-        'admits_ventilated': all_w_mkt_df['admits_ventilated'],
-    })
-    census_mkt_df = pd.DataFrame(data={
-        'day': all_w_mkt_df['day'],
-        'date': all_w_mkt_df['date'],
-        'census_hospitalized': all_w_mkt_df['census_hospitalized'],
-        'census_icu': all_w_mkt_df['census_icu'],
-        'census_ventilated': all_w_mkt_df['census_ventilated'],
-    })
-
-    wide_df, long_df = join_and_melt(admits_mkt_df, census_mkt_df, mkt_scenario)
-
-    base_results['important_variables_dict']['result_type'] = 'postprocessor'
-
-    results_mkt = {
-        'result_type': 'postprocessor',
-        'scenario': mkt_scenario,
-        'input_params_dict': base_results['input_params_dict'],
-        'important_variables_dict': base_results['important_variables_dict'],
-        'sim_sir_w_date_df': base_results['sim_sir_w_date_df'],
-        'dispositions_df': dispositions_mkt_df,
-        'admits_df': admits_mkt_df,
-        'census_df': census_mkt_df,
-        'adm_cen_wide_df': wide_df,
-        'adm_cen_long_df': long_df
-    }
-
-    return results_mkt
-
-
-def include_actual(results, actual_csv):
-    current_date = pd.Timestamp(results['input_params_dict']['current_date'])
-    actual_df = pd.read_csv(actual_csv, parse_dates=['date'])
-    actual_df.iloc[(actual_df['date'] < current_date).values, :] = \
-        actual_df.iloc[(actual_df['date'] < current_date).values, :].fillna(0)
-    wide_df = results['adm_cen_wide_df']
-    wide_w_act_df = pd.merge(wide_df, actual_df, left_on=['date'], right_on=['date'], how='left')
-    wide_w_act_df.rename({'day_x': 'day'}, axis='columns', inplace=True)
-    wide_w_act_df.drop(['day_y'], axis='columns', inplace=True)
-
-    # Now recreate long version. It's assumed that the only columns in actual are
-    # day, date, and meltable measures.
-
-    long_df = pd.melt(wide_w_act_df,
-                      id_vars=['scenario', 'day', 'date'],
-                      var_name='dispo_measure', value_name='cases')
-
-    results['adm_cen_wide_df'] = wide_w_act_df.copy()
-    results['adm_cen_long_df'] = long_df
-
-    return results
-
-
-def read_dynamic_rcr(dynamic_rcr_csv):
-    dynamic_rcr_df = pd.read_csv(dynamic_rcr_csv, parse_dates=['date'])
-    #dynamic_rcr = list(dynamic_rcr_df.itertuples(index=False))
-    return dynamic_rcr_df
-
-
-def read_admits(admits_csv):
-    admits_df = pd.read_csv(admits_csv, parse_dates=['date'])
-    return admits_df
-
-
-def estimate_g_doubling_time(admits_df):
-    """
-    Fit exponential growth model to early admits (before mitigation date)
-    :param admits_df:
-    :return:
-    """
-
-    def exp_growth_func(x, b):
-        return np.exp(b * x)
-
-    x = np.array(admits_df.index.values)
-    y = np.array(admits_df.iloc[:, 1])
-    popt, pcov = curve_fit(exp_growth_func, x, y, p0=(0.10))
-    intrinsic_growth_rate_adm = popt[0]
-    implied_doubling_time = np.log(2.0) / intrinsic_growth_rate_adm
-    logger.info('Estimated intrinsic_growth_rate_adm: %s', intrinsic_growth_rate_adm)
-    logger.info('Estimated implied doubling_time: %s', implied_doubling_time)
-    return intrinsic_growth_rate_adm, implied_doubling_time
-
-
-def calculate_dispositions_mkt_adj(
-    mkt_adj_df: pd.DataFrame,
-    rates: Dict[str, float],
-):
-    """Build dispositions dataframe of patients adjusted by rate and market_share."""
-    for key, rate in rates.items():
-        mkt_adj_df["ever_" + key] = (mkt_adj_df.infected +
-                                     mkt_adj_df.recovered) * rate * mkt_adj_df.market_share
-
-    return mkt_adj_df
-
-
-def calculate_admits_mkt_adj(mkt_adj_df: pd.DataFrame, rates):
-    """Build admits dataframe from dispositions."""
-    for key in rates.keys():
-        # Need to convert Series to ndarray else get weird slicing errors
-        # when doing admit[1:] = ever[1:] - ever[:-1]. Strange.
-        ever = np.array(mkt_adj_df["ever_" + key])
-        admit = np.empty_like(ever)
-        admit[0] = np.nan
-        admit[1:] = ever[1:] - ever[:-1]
-        mkt_adj_df["admits_" + key] = admit
-
-    return mkt_adj_df
-
-
-def calculate_census_mkt_adj(
-    mkt_adj_df: pd.DataFrame,
-    lengths_of_stay: Dict[str, int],
-):
-    """Average Length of Stay for each disposition of COVID-19 case (total guesses)"""
-    n_days = mkt_adj_df["day"].shape[0]
-
-    for key, los in lengths_of_stay.items():
-        raw = np.array(mkt_adj_df["admits_" + key])
-        cumsum = np.empty(n_days + los)
-        cumsum[:los+1] = 0.0
-        cumsum[los+1:] = raw[1:].cumsum()
-
-        census = cumsum[los:] - cumsum[:-los]
-        mkt_adj_df["census_" + key] = census
-
-    return mkt_adj_df
-
-
-def get_date_first_hospitalized(admits_df):
-
-    first_admit = admits_df[admits_df.iloc[:, 1] > 0].iloc[0, 0]
-    return first_admit
-
-
 def main():
     my_args = parse_args()
     my_args_dict = vars(my_args)
@@ -626,7 +674,7 @@ def main():
         # to estimate initial doubling time and hospitalization rate (after sir)
 
         intrinsic_growth_rate = initial_doubling_time = None
-        admits_df = dynamic_rcr = None
+        admits_df = None
         if my_args.admits is not None:
             admits_csv = my_args.admits
             admits_df = read_admits(admits_csv)
@@ -654,7 +702,9 @@ def main():
         else:
             dynamic_rcr_df=None
 
-        # Call the sim_chime wrapper function
+        # Call the sim_chime wrapper function which will then either call
+        # the standard penn_chime.Sir class or, if using dynamic rcr, will
+        # use my SirPlus class.
         m, results = sim_chime(scenario, p,
                                intrinsic_growth_rate=intrinsic_growth_rate,
                                initial_doubling_time=initial_doubling_time,
@@ -662,6 +712,7 @@ def main():
                                rcr_policies_df=dynamic_rcr_df)
 
         if my_args.dynamic_rcr is not None:
+            # If dynamic rcr used, add enhanced info to sim_sir output
             sim_sir_enhanced_df = enhance_sim_sir_w_date(m, results)
             results['sim_sir_enhanced_df'] = sim_sir_enhanced_df
 
@@ -687,17 +738,7 @@ def main():
             results_mkt = market_share_adjustment(mkt_share_csv,
                                                   results, mkt_scenario)
 
-            # Stack wide and long results dataframes?
-            # This seems ill thought out. Let's not allow it for now.
-            if 0:
-                for key in ('wide_df', 'long_df'):
-                    df = results['adm_cen_' + key]
-                    mkt_df = results_mkt['adm_cen_' + key]
-                    df = pd.concat([df, mkt_df])
-                    results['adm_cen_' + key] = df.copy()
-
-            else:
-                write_results(results_mkt, mkt_scenario, output_path)
+            write_results(results_mkt, mkt_scenario, output_path)
 
         # Check if including actual values
         if my_args.actual is not None:
@@ -708,6 +749,9 @@ def main():
 
     else:
         # Running a bunch of scenarios using sim_chimes()
+        # This is not fully implemented as a generic features. It does demo
+        # the idea by running a bunch of sim_chime simulations over ranges of
+        # social distancing, date first hospitalized, and one or two additional input vars.
         experiment = my_args.experiment
         # Run the scenarios (kludged into sim_chimes for now)
         results_list = sim_chimes(experiment, p)
@@ -722,8 +766,6 @@ def main():
 
         # Write out consolidated csv files
         write_experiment_results(cons_dfs, params_dict_list, experiment, output_path)
-
-
 
 
 if __name__ == "__main__":
