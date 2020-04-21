@@ -415,13 +415,13 @@ def read_dynamic_rcr(dynamic_rcr_csv):
         2020-03-25,0.45
         ...
     """
-    dynamic_rcr_df = pd.read_csv(dynamic_rcr_csv, parse_dates=['date'])
+    dynamic_rcr_df = pd.read_csv(dynamic_rcr_csv, parse_dates=['date'], comment='#' )
     return dynamic_rcr_df
 
 
 def read_admits(admits_csv):
     """Experimenting with inputting multiple days of admit data to estimate early growth rate."""
-    admits_df = pd.read_csv(admits_csv, parse_dates=['date'])
+    admits_df = pd.read_csv(admits_csv, parse_dates=['date'], comment='#')
     return admits_df
 
 
@@ -699,6 +699,9 @@ def main():
         if my_args.dynamic_rcr is not None:
             dynamic_rcr_csv = my_args.dynamic_rcr
             dynamic_rcr_df = read_dynamic_rcr(dynamic_rcr_csv)
+            first_rcr_date = dynamic_rcr_df.iloc[0, 0]
+            if first_rcr_date != p.date_first_hospitalized:
+                raise AssertionError("First date in dynamic rcr file must be same as date-first-hospitalized.")
         else:
             dynamic_rcr_df=None
 

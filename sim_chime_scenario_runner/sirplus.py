@@ -206,17 +206,25 @@ class SirPlus(Sir):
             ]
         else:
             beta_policies = []
+            total_days = self.i_day + p.n_days
+            last_date = p.current_date + pd.Timedelta(days=p.n_days - 1)
             # Compute number of days rcr policy in effect
-            rcr_policies['n_days'] = rcr_policies.iloc[:, 0].diff(-1).apply(lambda x: -x.days)
-            rcr_policies['n_days'].fillna(0, inplace=True)
-            rcr_policies['n_days'] = rcr_policies['n_days'].astype('int64')
+            # rcr_policies['n_days'] = rcr_policies.iloc[:, 0].diff(-1).apply(lambda x: -x.days)
 
             # Get column name and reset index to avoid pandas hell of boolean indexing with date columns
             colname = rcr_policies.columns[0]
             rcr_policies = rcr_policies.set_index(colname)
-            rcr_policies = rcr_policies.loc[pd.Timestamp(p.date_first_hospitalized):]
+            rcr_policies = rcr_policies.loc[pd.Timestamp(p.date_first_hospitalized):pd.Timestamp(last_date)]
+            rcr_policies.reset_index(inplace=True, drop=False)
+            rcr_policies['n_days'] = rcr_policies.iloc[:, 0].diff(-1).apply(lambda x: -x.days)
 
-            for (date, rcr, n_days) in rcr_policies.itertuples(index=True):
+            tot_policy_days = rcr_policies['n_days'].sum()
+            rcr_policies['n_days'].fillna(total_days - tot_policy_days, inplace=True)
+            rcr_policies['n_days'] = rcr_policies['n_days'].astype('int64')
+
+
+
+            for (date, rcr, n_days) in rcr_policies.itertuples(index=False):
                 new_beta = get_beta(self.intrinsic_growth_rate, self.gamma, self.susceptible, rcr)
                 beta_policies.append((new_beta, n_days))
 
