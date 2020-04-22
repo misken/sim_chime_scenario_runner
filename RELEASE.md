@@ -15,6 +15,24 @@ A simple Python module for working with the penn_chime model from the command li
 * Source code: http://github.com/misken/sim_chime_scenario_runner
 * Documentation: See Jupyter notebooks in docs folder
 
+### sim_chime_scenario_runner 2.1.0-chime.1.1.3
+
+Added dynamic relative contact rates. See demos/dynamic_rcr_runner.ipynb.
+
+**Release date:** 2020-04-10
+
+**New features**
+
+* Added ability to specify multiple mitigation dates and associated relative contact rate values.
+    - new `dynamic-rcr` argument added to CLI
+    - actual file should only contain date and rcr value. 
+
+**API Changes**
+
+* Added `--dynamic-rcr <dynamic rcr values csv>`
+
+**Bug Fixes**
+
 ### sim_chime_scenario_runner 2.0.0-chime.1.1.3
 
 Added a bunch of new functionality but still more to do, especially for experiments (batches of scenarios).

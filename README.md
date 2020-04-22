@@ -2,6 +2,10 @@
 
 A simple Python module for working with the penn_chime model from the command line or as importable functions. 
 
+### sim_chime_scenario_runner 2.1.0-chime.1.1.3
+
+Added dynamic relative contact rates. See `demos/dynamic_rcr_runner.ipynb` and [release notes](RELEASE.md) for details.
+
 ### sim_chime_scenario_runner 2.0.0-chime.1.1.3
 
 Added a bunch of new functionality but still more to do, especially for experiments (batches of scenarios).
