@@ -14,7 +14,7 @@ setup(
     author_email="",
     description="Wrapper for penn_chime to facilitate scenario running/management",
     url="https://github.com/misken/sim_chime_scenario_runner",
-    packages=['sim_chime_scenario_runner'],
+    packages=['sim_chime_scenario_runner', 'sim_chime_scenario_runner.model'],
     install_requires=[
         "numpy",
         "pandas",

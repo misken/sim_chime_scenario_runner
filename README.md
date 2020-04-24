@@ -4,7 +4,7 @@ A simple Python module for working with the penn_chime model from the command li
 
 ### sim_chime_scenario_runner 2.1.0-chime.1.1.3
 
-Added dynamic relative contact rates. **WARNING: MATH AND CODING ERRORS POSSIBLE - CHECKING - DON'T USE FOR REAL LIFE**
+Added dynamic relative contact rates. Needs validation work but idea seems reasonable.
 
 See [dynamic_rcr_runner.ipynb](https://github.com/misken/sim_chime_scenario_runner/blob/master/demos/dynamic_rcr_runner.ipynb) and [release notes](RELEASE.md) for details.
 
