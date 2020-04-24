@@ -36,8 +36,8 @@ import json
 from penn_chime.model.parameters import Parameters, Disposition
 from penn_chime.model.sir import Sir
 
-from .sirplus import SirPlus
-from .sirplus import get_doubling_time
+from .model.sirplus import SirPlus
+from .model.sirplus import get_doubling_time
 
 from logging import INFO, basicConfig, getLogger
 
@@ -266,18 +266,32 @@ def join_and_melt(adm_df, cen_def, scenario):
     return wide_df, long_df
 
 
-def enhance_sim_sir_w_date(m, results):
+def enhance_sim_sir_w_date(m, p, results):
     """ Add growth rate, beta, doubling time and basic reproductive number to sir outputs."""
 
-    sim_sir_enhanced_df = results['sim_sir_w_date_df'].copy()
+    # Create dataframe from (beta, n_days) tuples and add date to it
+    rcr_policies_df = pd.DataFrame(m.beta_policies, columns=['beta', 'n_days'])
+    rcr_policies_df['date'] = pd.to_datetime(p.date_first_hospitalized)
+    time_added = pd.to_timedelta(rcr_policies_df['n_days'].iloc[:].cumsum() - 1, 'd').shift(1).fillna(pd.Timedelta(days=0))
+    rcr_policies_df['date'].iloc[:] = rcr_policies_df['date'].iloc[:] + time_added.iloc[:]
 
-    sim_sir_enhanced_df['ever_infected'] = sim_sir_enhanced_df['infected'] +\
-        sim_sir_enhanced_df['recovered']
 
-    sim_sir_enhanced_df['ever_growth_rate'] = sim_sir_enhanced_df['ever_infected'].pct_change(1)
-    sim_sir_enhanced_df['beta'] = (sim_sir_enhanced_df['ever_growth_rate'] + m.gamma) / sim_sir_enhanced_df['susceptible']
-    sim_sir_enhanced_df['doubling_time'] = sim_sir_enhanced_df['ever_growth_rate'].map(lambda x: get_doubling_time(x))
-    sim_sir_enhanced_df['basic reproductive number'] = sim_sir_enhanced_df['susceptible'] * sim_sir_enhanced_df['beta'] / m.gamma
+    # Do equivalent of an Excel approximate vlookup
+    sim_sir_enhanced_df = pd.merge_asof(results['sim_sir_w_date_df'], rcr_policies_df, on='date')
+
+    # Ever infected is i+r
+    sim_sir_enhanced_df['ever_infected'] = sim_sir_enhanced_df['infected'] + sim_sir_enhanced_df['recovered']
+
+    # Compute beta as [S(t) - S(t+1)] / S(t)I(t)
+    # This should be exactly the same beta as specified in rcr policies
+    sim_sir_enhanced_df['beta_direct'] = sim_sir_enhanced_df['susceptible'].diff(-1) \
+        / (sim_sir_enhanced_df['susceptible'] * sim_sir_enhanced_df['infected'])
+
+    sim_sir_enhanced_df['ever_infected_pct_change'] = sim_sir_enhanced_df['ever_infected'].pct_change(1)
+
+    sim_sir_enhanced_df['doubling_time_t'] = sim_sir_enhanced_df['ever_infected_pct_change'].map(lambda x: get_doubling_time(x))
+
+    sim_sir_enhanced_df['basic_reproductive_number_t'] = sim_sir_enhanced_df['susceptible'] * sim_sir_enhanced_df['beta_direct'] / m.gamma
 
     return sim_sir_enhanced_df
 
@@ -716,7 +730,7 @@ def main():
 
         if my_args.dynamic_rcr is not None:
             # If dynamic rcr used, add enhanced info to sim_sir output
-            sim_sir_enhanced_df = enhance_sim_sir_w_date(m, results)
+            sim_sir_enhanced_df = enhance_sim_sir_w_date(m, p, results)
             results['sim_sir_enhanced_df'] = sim_sir_enhanced_df
 
         if not my_args.quiet:
