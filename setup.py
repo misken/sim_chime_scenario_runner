@@ -4,7 +4,7 @@ __version__ = "2.1.0-chime.1.1.3"
 __author__ = "misken"  
 
 from os import path
-from setuptools import setup
+from setuptools import setup, find_namespace_packages
 
 
 setup(
@@ -14,6 +14,8 @@ setup(
     author_email="",
     description="Wrapper for penn_chime to facilitate scenario running/management",
     url="https://github.com/misken/sim_chime_scenario_runner",
+    #package_dir={'': 'sim_chime_scenario_runner'},
+    #packages=find_namespace_packages(where='sim_chime_scenario_runner', exclude=('tests')),
     packages=['sim_chime_scenario_runner', 'sim_chime_scenario_runner.model'],
     install_requires=[
         "numpy",
