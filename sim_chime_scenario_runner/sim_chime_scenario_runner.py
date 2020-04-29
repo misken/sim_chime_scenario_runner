@@ -36,8 +36,8 @@ import json
 from penn_chime.model.parameters import Parameters, Disposition
 from penn_chime.model.sir import Sir
 
-from model.sirplus import SirPlus
-from model.sirplus import get_doubling_time
+from .model.sirplus import SirPlus
+from .model.sirplus import get_doubling_time
 
 from logging import INFO, basicConfig, getLogger
 
