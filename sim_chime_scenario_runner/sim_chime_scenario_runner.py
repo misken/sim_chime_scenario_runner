@@ -36,8 +36,8 @@ import json
 from penn_chime.model.parameters import Parameters, Disposition
 from penn_chime.model.sir import Sir
 
-from .model.sirplus import SirPlus
-from .model.sirplus import get_doubling_time
+from model.sirplus import SirPlus
+from model.sirplus import get_doubling_time
 
 from logging import INFO, basicConfig, getLogger
 
@@ -56,6 +56,9 @@ def parse_args():
     parser.add_argument(
         "--scenario", type=str, default=datetime.now().strftime("%Y.%m.%d.%H.%M."),
         help="Prepended to output filenames. (default is current datetime)"
+    )
+    parser.add_argument(
+        "--n-days", type=int, default=None, help="override n-days in params to get around penn_chime validation check",
     )
     parser.add_argument(
         "--output-path", type=str, default="", help="location for output file writing",
@@ -83,7 +86,7 @@ def parse_args():
     return parser.parse_args()
 
 
-def create_params_from_file(file: str):
+def create_params_from_file(file: str, n_days: int=None):
     """
     Create CHIME Parameters object from input config file.
 
@@ -93,6 +96,8 @@ def create_params_from_file(file: str):
 
     args = ['--parameters', file]
     p = Parameters.create(os.environ, args)
+    if n_days is not None:
+        p.n_days = n_days
 
     return p
 
@@ -677,7 +682,7 @@ def main():
     output_path = my_args.output_path
 
     # Read chime params from configuration file
-    p = create_params_from_file(my_args_dict['parameters'])
+    p = create_params_from_file(my_args_dict['parameters'], my_args.n_days)
 
     input_check = vars(p)
 
