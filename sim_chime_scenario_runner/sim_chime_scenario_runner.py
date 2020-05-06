@@ -36,8 +36,8 @@ import json
 from penn_chime.model.parameters import Parameters, Disposition
 from penn_chime.model.sir import Sir
 
-from model.sirplus import SirPlus
-from model.sirplus import get_doubling_time
+from .model.sirplus import SirPlus
+from .model.sirplus import get_doubling_time
 
 from logging import INFO, basicConfig, getLogger
 
@@ -580,7 +580,7 @@ def sim_chimes(experiment: str, p: Parameters):
         input_params_dict = OrderedDict(vars(p))
 
         # Run the model
-        m = Model(p)
+        m = Sir(p)
 
         # Gather results
         results = gather_sim_results(m, sim_scenario, input_params_dict)
